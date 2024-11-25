@@ -1,0 +1,96 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion de Patrimoine</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #4c1d95 0%, #5b21b6 100%);
+        }
+        .form-card {
+            background-color: #06b6d4;
+        }
+        .custom-shadow {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen">
+    <nav class="p-4">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="text-white text-2xl font-bold">MonPatrimoine</div>
+            <div class="flex gap-4">
+                <a href="#" class="text-white hover:text-gray-200">Thématiques</a>
+                <a href="#" class="text-white hover:text-gray-200">Guides</a>
+                <a href="#" class="text-white hover:text-gray-200">Outils</a>
+                <a href="#" class="bg-cyan-400 text-white px-4 py-2 rounded-full hover:bg-cyan-500">
+                    Nous contacter
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 p-8">
+        <div class="text-white space-y-6 pt-12">
+            <h1 class="text-4xl font-bold text-cyan-300">
+                Commencez à développer votre patrimoine aujourd'hui
+            </h1>
+            <p class="text-lg">
+                Notre plateforme vous accompagne avec des experts pour optimiser
+                la gestion de votre patrimoine. Découvrez nos guides, articles
+                et outils personnalisés.
+            </p>
+            <button class="bg-cyan-400 text-white px-6 py-3 rounded-full hover:bg-cyan-500">
+                Je commence
+            </button>
+        </div>
+
+        <div class="form-card rounded-lg p-6 text-white custom-shadow">
+            <div class="mb-6">
+                <h2 class="text-2xl font-bold mb-4">
+                    2 minutes pour définir vos objectifs
+                </h2>
+            </div>
+
+            <form class="space-y-4">
+                <div>
+                    <label class="block mb-2">Vos objectifs</label>
+                    <select class="w-full p-2 rounded text-gray-800">
+                        <option value="">Sélectionnez</option>
+                        <option>Épargner</option>
+                        <option>Investir</option>
+                        <option>Préparer la retraite</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block mb-2">Votre patrimoine actuel</label>
+                    <select class="w-full p-2 rounded text-gray-800">
+                        <option value="">Sélectionnez</option>
+                        <option>0 - 50 000€</option>
+                        <option>50 000€ - 200 000€</option>
+                        <option>200 000€ +</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block mb-2">Votre revenu annuel</label>
+                    <select class="w-full p-2 rounded text-gray-800">
+                        <option value="">Sélectionnez</option>
+                        <option>0 - 30 000€</option>
+                        <option>30 000€ - 60 000€</option>
+                        <option>60 000€ +</option>
+                    </select>
+                </div>
+
+                <button class="w-full bg-indigo-900 text-white py-2 rounded hover:bg-indigo-800">
+                    Valider mon choix
+                </button>
+            </form>
+        </div>
+    </main>
+</body>
+</html>
