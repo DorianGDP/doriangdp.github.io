@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Thématiques - Gestion de Patrimoine</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #4c1d95 0%, #5b21b6 100%);
+        }
+    </style>
 </head>
 <body class="gradient-bg min-h-screen text-white">
     <nav class="p-4">
@@ -14,17 +19,21 @@
                 <a href="thematique.html" class="text-white hover:text-gray-200">Thématiques</a>
                 <a href="guides.html" class="text-white hover:text-gray-200">Guides</a>
                 <a href="outils.html" class="text-white hover:text-gray-200">Outils</a>
+                <a href="#" class="bg-cyan-400 text-white px-4 py-2 rounded-full hover:bg-cyan-500">Nous contacter</a>
             </div>
         </div>
     </nav>
-    <main class="max-w-7xl mx-auto p-8">
-        <h1 class="text-4xl font-bold mb-6">Thématiques Clés</h1>
-        <p class="text-lg mb-6">Explorez les thématiques incontournables de la gestion de patrimoine pour optimiser vos décisions.</p>
-        <ul class="space-y-4">
-            <li class="bg-indigo-900 p-4 rounded shadow">Investissement Immobilier</li>
-            <li class="bg-indigo-900 p-4 rounded shadow">Planification de Retraite</li>
-            <li class="bg-indigo-900 p-4 rounded shadow">Fiscalité et Épargne</li>
-        </ul>
+    <main class="max-w-7xl mx-auto grid grid-cols-1 gap-8 p-8">
+        <div class="text-white space-y-6">
+            <h1 class="text-4xl font-bold text-cyan-300">Explorez Nos Thématiques</h1>
+            <p class="text-lg">Plongez dans les sujets clés de la gestion de patrimoine pour éclairer vos décisions.</p>
+            <ul class="space-y-4">
+                <li class="bg-indigo-900 p-4 rounded shadow">Investissement Immobilier</li>
+                <li class="bg-indigo-900 p-4 rounded shadow">Planification de Retraite</li>
+                <li class="bg-indigo-900 p-4 rounded shadow">Fiscalité et Épargne</li>
+            </ul>
+            <a href="index.html" class="bg-cyan-400 text-white px-6 py-3 rounded-full hover:bg-cyan-500">Retour à l'accueil</a>
+        </div>
     </main>
 </body>
 </html>
