@@ -1,14 +1,14 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "api/chat.py", "use": "@vercel/python" }
-  ],
+  "functions": {
+    "api/chat.py": {
+      "runtime": "python3.9"
+    }
+  },
   "routes": [
-    { "src": "/api/chat", "dest": "api/chat.py" }
-  ],
-  "env": {
-    "OPENAI_API_KEY": "@openai_api_key",
-    "SUPABASE_URL": "@supabase_url",
-    "SUPABASE_KEY": "@supabase_key"
-  }
+    {
+      "src": "/api/chat",
+      "dest": "/api/chat.py"
+    }
+  ]
 }
