@@ -3,91 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assistant MonPatrimoine</title>
+    <title>Assistant Chatbot</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body class="bg-white">
-    <div class="flex flex-col h-screen">
-        <!-- Zone des messages -->
-        <div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-4">
-            <div class="bg-cyan-100 p-3 rounded-lg max-w-[80%]">
-                <p>Bonjour ! Je suis votre assistant en gestion de patrimoine.</p>
-                <p>Comment puis-je vous aider aujourd'hui ?</p>
-            </div>
-        </div>
+<body class="bg-white h-screen flex flex-col">
+    <div class="bg-cyan-400 text-white p-4">
+        <h1 class="text-lg font-bold">Assistant MonPatrimoine</h1>
+    </div>
 
-        <!-- Zone de saisie -->
-        <div class="border-t border-gray-200 p-4">
-            <div class="flex gap-2">
-                <input type="text" id="userInput" 
-                    class="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:outline-none focus:border-cyan-400"
-                    placeholder="Posez votre question...">
-                <button onclick="sendMessage()" 
-                    class="bg-cyan-400 text-white px-6 py-2 rounded-full hover:bg-cyan-500">
-                    Envoyer
-                </button>
-            </div>
+    <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+
+    <div class="border-t p-4 bg-gray-50">
+        <div class="flex space-x-2">
+            <input 
+                type="text" 
+                id="user-input"
+                class="flex-1 px-4 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-cyan-400"
+                placeholder="Posez votre question..."
+            >
+            <button 
+                onclick="sendMessage()"
+                class="bg-cyan-400 text-white px-6 py-2 rounded-full hover:bg-cyan-500 transition-colors"
+            >
+                Envoyer
+            </button>
         </div>
     </div>
 
     <script>
-        const API_URL = 'https://chatbot-api-seven-beta.vercel.app/';
+        const API_URL = 'https://chatbot-api-seven-beta.vercel.app/api/chat';
 
         async function sendMessage() {
-            const input = document.getElementById('userInput');
-            const messagesContainer = document.getElementById('chatMessages');
+            const input = document.getElementById('user-input');
+            const messagesContainer = document.getElementById('chat-messages');
             
             const question = input.value.trim();
             if (!question) return;
 
-            // Message utilisateur
+            // Afficher le message de l'utilisateur
             messagesContainer.innerHTML += `
                 <div class="flex justify-end">
-                    <div class="bg-cyan-400 text-white p-3 rounded-lg max-w-[80%]">
+                    <div class="bg-cyan-400 text-white rounded-lg py-2 px-4 max-w-[80%]">
                         ${question}
                     </div>
                 </div>
             `;
 
             input.value = '';
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
             try {
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({ question })
                 });
 
-                const data = await response.json();
-
-                // Message bot
-                let sourcesHtml = '';
-                if (data.sources && data.sources.length > 0) {
-                    sourcesHtml = `
-                        <div class="mt-2 text-xs text-indigo-600">
-                            Sources: ${data.sources.map(s => `
-                                <a href="${s.url}" class="underline hover:text-indigo-800" target="_blank">${s.title}</a>
-                            `).join(', ')}
-                        </div>
-                    `;
+                if (!response.ok) {
+                    throw new Error('Erreur réseau');
                 }
 
+                const data = await response.json();
+
+                // Afficher la réponse du bot
                 messagesContainer.innerHTML += `
                     <div class="flex justify-start">
-                        <div class="bg-cyan-100 p-3 rounded-lg max-w-[80%]">
+                        <div class="bg-gray-100 rounded-lg py-2 px-4 max-w-[80%]">
                             ${data.response}
-                            ${sourcesHtml}
                         </div>
                     </div>
                 `;
 
+                // Scroll vers le bas
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
             } catch (error) {
+                console.error('Erreur:', error);
                 messagesContainer.innerHTML += `
                     <div class="flex justify-start">
-                        <div class="bg-red-100 text-red-700 p-3 rounded-lg max-w-[80%]">
+                        <div class="bg-red-100 text-red-600 rounded-lg py-2 px-4 max-w-[80%]">
                             Désolé, une erreur est survenue. Veuillez réessayer.
                         </div>
                     </div>
@@ -95,7 +89,8 @@
             }
         }
 
-        document.getElementById('userInput').addEventListener('keypress', function(e) {
+        // Permettre l'envoi avec Enter
+        document.getElementById('user-input').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 sendMessage();
             }
