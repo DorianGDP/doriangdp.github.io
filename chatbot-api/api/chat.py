@@ -1,36 +1,36 @@
-from http.server import BaseHTTPRequestHandler
+from http.client import HTTPException
 import json
 from openai import OpenAI
-import numpy as np
 import faiss
 import os
-from supabase import create_client
+from supabase import create_client, Client
 
 def handler(request):
-    # Lire le corps de la requête
-    try:
-        body = json.loads(request.get('body', '{}'))
-    except:
-        return {
-            'statusCode': 400,
-            'body': json.dumps({'error': 'Invalid JSON body'})
-        }
+    # Headers CORS
+    headers = {
+        'Access-Control-Allow-Origin': '*',  # En production, spécifiez votre domaine
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+    }
 
-    # Vérifier la présence de la question
-    question = body.get('question')
-    if not question:
+    # Gérer la requête OPTIONS (preflight)
+    if request.method == "OPTIONS":
         return {
-            'statusCode': 400,
-            'body': json.dumps({'error': 'Question is required'})
+            'statusCode': 200,
+            'headers': headers,
+            'body': ''
         }
 
     try:
-        # Initialiser les clients
-        openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
-        supabase_client = create_client(
-            os.environ.get('SUPABASE_URL', ''),
-            os.environ.get('SUPABASE_KEY', '')
-        )
+        body = json.loads(request.body)
+        question = body.get('question')
+        
+        if not question:
+            return {
+                'statusCode': 400,
+                'headers': headers,
+                'body': json.dumps({'error': 'Question manquante'})
+            }
 
         # Charger l'index FAISS
         index = faiss.read_index('api/faiss_index.idx')
@@ -66,15 +66,17 @@ def handler(request):
 
         return {
             'statusCode': 200,
+            'headers': headers,
             'body': json.dumps({
-                'response': completion.choices[0].message.content,
-                'sources': relevant_docs
+                'response': "Votre réponse ici",
+                'sources': []
             })
         }
-
+        
     except Exception as e:
         return {
             'statusCode': 500,
+            'headers': headers,
             'body': json.dumps({'error': str(e)})
         }
 
