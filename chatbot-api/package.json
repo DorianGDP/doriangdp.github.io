@@ -1,9 +1,0 @@
-{
-  "name": "chatbot-api",
-  "version": "1.0.0",
-  "description": "API Chatbot for MonPatrimoine",
-  "private": true,
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  }
-}
