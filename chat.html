@@ -194,6 +194,9 @@ function formatText(text) {
         return true;
     }).join('\n');
 
+    // Convertir le texte en gras
+    text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold">$1</strong>');
+
     // Convertir les références en liens
     text = text.replace(/\[(\^[0-9]+\^)\]/g, (match, ref) => {
         const url = references[ref];
@@ -209,15 +212,21 @@ function formatText(text) {
         '<a href="$2" class="text-blue-600 hover:text-blue-800 underline" target="_blank">$1</a>'
     );
 
-    // Convertir les listes
-    text = text.replace(/^- (.+)$/gm, '<li class="ml-4">• $1</li>');
-
-    // Convertir les paragraphes
-    const paragraphs = text.split('\n\n').map(p => {
-        if (p.trim().startsWith('<li>')) {
-            return `<ul class="my-2 space-y-1">${p}</ul>`;
+    // Diviser le texte en paragraphes et traiter chaque paragraphe
+    const paragraphs = text.split('\n\n').map(paragraph => {
+        // Vérifier si le paragraphe contient des éléments de liste
+        if (paragraph.includes('\n- ')) {
+            // Traiter les éléments de liste
+            const listItems = paragraph.split('\n- ').map((item, index) => {
+                if (index === 0 && !item.startsWith('- ')) {
+                    return `<p class="mb-2">${item}</p>`;
+                }
+                return `<li class="ml-4 mb-2">• ${item.replace(/^- /, '')}</li>`;
+            }).join('');
+            return `<ul class="my-2 space-y-1">${listItems}</ul>`;
         }
-        return `<p class="mb-2">${p}</p>`;
+        // Si c'est un paragraphe normal
+        return `<p class="mb-2">${paragraph}</p>`;
     });
 
     return paragraphs.join('\n');
