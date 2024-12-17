@@ -50,10 +50,13 @@ class ChatBot:
         """
         Génère une réponse avec GPT-4
         """
-        # Préparer le contexte
+        # Préparer le contexte de manière plus structurée
         context = "\n\n".join([
-            f"Titre: {doc['title']}\nContenu: {doc['content']}\nURL: {doc['url']}" 
-            for doc in documents_pertinents
+            f"""Source {idx+1}:
+            Titre: {doc['title']}
+            Contenu: {doc['content']}
+            URL: {doc['url']}""" 
+            for idx, doc in enumerate(documents_pertinents)
         ])
         
         system_prompt = """Tu es un assistant virtuel expert chargé d'aider les utilisateurs à naviguer sur notre site web. 
