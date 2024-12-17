@@ -4,20 +4,21 @@
     <meta charset="UTF-8">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body class="p-4 bg-gray-100">
-    <!-- Container principal avec fond blanc -->
-    <div class="bg-white rounded-lg shadow-lg p-4 max-w-4xl mx-auto">
-        <!-- Zone des messages avec fond blanc -->
-        <div id="chat-messages" class="h-[500px] overflow-y-auto mb-4 bg-white border rounded-lg p-4"></div>
+<body class="p-4 bg-white">
+    <div class="flex flex-col h-screen max-h-screen">
+        <div class="text-xl font-bold text-gray-800 mb-4 px-2">
+            Assistant MonPatrimoine
+        </div>
         
-        <!-- Zone de saisie -->
-        <div class="flex gap-2">
+        <div id="chat-messages" class="flex-1 overflow-y-auto mb-4 space-y-4"></div>
+        
+        <div class="flex gap-2 p-2 border-t">
             <input type="text" 
                    id="user-input" 
-                   class="flex-1 p-2 border rounded text-gray-800 bg-white" 
+                   class="flex-1 p-3 border rounded-lg text-gray-800 bg-white" 
                    placeholder="Posez votre question...">
             <button id="send-button" 
-                    class="bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-2 rounded font-medium">
+                    class="bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-2 rounded-lg font-medium">
                 Envoyer
             </button>
         </div>
@@ -28,15 +29,58 @@
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
 
+        function formatText(text) {
+            // Extraire et stocker les références
+            const references = {};
+            const referenceRegex = /\[(\^[0-9]+\^)\]:\s*(https?:\/\/[^\s]+)/g;
+            let match;
+            
+            // Nettoyer les références du texte principal
+            text = text.split('\n').filter(line => {
+                match = referenceRegex.exec(line);
+                if (match) {
+                    references[match[1]] = match[2].trim();
+                    return false;
+                }
+                return true;
+            }).join('\n');
+
+            // Convertir les références en liens
+            text = text.replace(/\[(\^[0-9]+\^)\]/g, (match, ref) => {
+                const url = references[ref];
+                if (url) {
+                    return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">[${ref.replace(/\^/g, '')}]</a>`;
+                }
+                return match;
+            });
+
+            // Convertir les liens markdown standards
+            text = text.replace(
+                /\[([^\]]+)\]\(([^)]+)\)/g,
+                '<a href="$2" class="text-blue-600 hover:text-blue-800 underline" target="_blank">$1</a>'
+            );
+
+            // Convertir les listes
+            text = text.replace(/^- (.+)$/gm, '<li class="ml-4">• $1</li>');
+
+            // Convertir les paragraphes
+            const paragraphs = text.split('\n\n').map(p => {
+                if (p.trim().startsWith('<li>')) {
+                    return `<ul class="my-2 space-y-1">${p}</ul>`;
+                }
+                return `<p class="mb-2">${p}</p>`;
+            });
+
+            return paragraphs.join('\n');
+        }
+
         async function sendMessage() {
             const question = userInput.value.trim();
             if (!question) return;
 
-            // Afficher le message de l'utilisateur
             appendMessage('user', question);
             userInput.value = '';
 
-            // Afficher un message de chargement
             const loadingId = appendMessage('bot', "En train de réfléchir...");
 
             try {
@@ -54,8 +98,6 @@
                 }
 
                 const data = await response.json();
-                
-                // Remplacer le message de chargement par la réponse
                 updateMessage(loadingId, 'bot', data.reponse);
 
             } catch (error) {
@@ -67,76 +109,17 @@
             }
         }
 
-        function formatText(text) {
-            // Stocker les références et leurs URLs
-            const references = {};
-            const referenceRegex = /\[(\^[0-9]+\^)\]:\s*(https?:\/\/[^\s]+)/g;
-            let match;
-            
-            // Extraire les références et les URLs
-            text = text.split('\n').filter(line => {
-                match = referenceRegex.exec(line);
-                if (match) {
-                    references[match[1]] = match[2].trim();
-                    return false;
-                }
-                return true;
-            }).join('\n');
-        
-            // Étape 1: Séparer le texte en paragraphes
-            let paragraphs = text.split('\n\n');
-            
-            // Étape 2: Traiter chaque paragraphe
-            paragraphs = paragraphs.map(paragraph => {
-                // Remplacer les références par des liens
-                paragraph = paragraph.replace(/\[(\^[0-9]+\^)\]/g, (match, ref) => {
-                    const url = references[ref];
-                    if (url) {
-                        return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">[${ref.replace(/\^/g, '')}]</a>`;
-                    }
-                    return match;
-                });
-        
-                // Formater les liens standards (comme avant)
-                paragraph = paragraph.replace(
-                    /\[([^\]]+)\]\(([^)]+)\)/g, 
-                    (match, text, url) => {
-                        url = url.trim();
-                        text = text.trim();
-                        return `<a href="${url}" class="block mt-1 text-blue-600 hover:text-blue-800 underline" target="_blank">→ ${text}</a>`;
-                    }
-                );
-        
-                // Gérer les listes
-                if (paragraph.trim().startsWith('-')) {
-                    const items = paragraph.split('\n-').map(item => item.trim());
-                    return `<ul class="list-disc pl-5 space-y-2">
-                        ${items.map(item => item ? `<li>${item.replace(/^-\s*/, '')}</li>` : '').join('')}
-                    </ul>`;
-                }
-        
-                // Paragraphe normal
-                return `<p class="mb-3">${paragraph}</p>`;
-            });
-        
-            // Étape 3: Réassembler le texte avec une meilleure structure
-            return `<div class="space-y-4">${paragraphs.join('')}</div>`;
-        }
-        
-        // Fonction annexe pour ajouter des sauts de ligne supplémentaires après certains éléments
         function appendMessage(sender, text) {
             const messageDiv = document.createElement('div');
             const messageId = Date.now();
             messageDiv.id = `message-${messageId}`;
             
             if (sender === 'user') {
-                messageDiv.className = 'mb-4 p-3 rounded-lg bg-cyan-100 ml-8 text-gray-800';
+                messageDiv.className = 'ml-auto max-w-[80%] p-3 rounded-lg bg-cyan-100 text-gray-800';
                 messageDiv.textContent = text;
             } else {
-                messageDiv.className = 'mb-4 p-3 rounded-lg bg-gray-100 mr-8 text-gray-800';
-                // Ajout d'une div avec espacement pour le contenu du bot
-                const formattedText = formatText(text);
-                messageDiv.innerHTML = `<div class="space-y-4">${formattedText}</div>`;
+                messageDiv.className = 'mr-auto max-w-[80%] p-3 rounded-lg bg-gray-100 text-gray-800';
+                messageDiv.innerHTML = formatText(text);
             }
             
             messagesContainer.appendChild(messageDiv);
@@ -148,11 +131,11 @@
             const messageDiv = document.getElementById(`message-${messageId}`);
             if (messageDiv) {
                 if (sender === 'bot') {
-                    const formattedText = formatText(text);
-                    messageDiv.innerHTML = `<div class="space-y-4">${formattedText}</div>`;
+                    messageDiv.innerHTML = formatText(text);
                 } else {
                     messageDiv.textContent = text;
                 }
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
             }
         }
 
@@ -160,6 +143,9 @@
         userInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
         });
+
+        // Message de bienvenue
+        appendMessage('bot', "Bonjour ! Je suis là pour vous aider avec vos questions sur la gestion de patrimoine. Comment puis-je vous assister aujourd'hui ?");
     </script>
 </body>
 </html>
