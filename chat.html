@@ -124,7 +124,12 @@
         function updateMessage(messageId, sender, text) {
             const messageDiv = document.getElementById(`message-${messageId}`);
             if (messageDiv) {
-                messageDiv.textContent = text;
+                if (sender === 'bot') {
+                    const formattedText = formatText(text);
+                    messageDiv.innerHTML = `<div class="space-y-4">${formattedText}</div>`;
+                } else {
+                    messageDiv.textContent = text;
+                }
             }
         }
 
