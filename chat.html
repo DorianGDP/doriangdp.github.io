@@ -18,7 +18,6 @@
             background-color: #06b6d4;
             border-radius: 15px 15px 0 15px;
         }
-        /* Animation pour les nouveaux messages */
         @keyframes slideIn {
             from {
                 transform: translateY(20px);
@@ -32,7 +31,6 @@
         .message-animation {
             animation: slideIn 0.3s ease-out forwards;
         }
-        /* Style de la barre de défilement */
         ::-webkit-scrollbar {
             width: 6px;
         }
@@ -46,7 +44,6 @@
     </style>
 </head>
 <body class="h-screen flex flex-col bg-gray-50">
-    <!-- En-tête -->
     <header class="gradient-header p-4 shadow-lg">
         <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center">
@@ -55,16 +52,14 @@
                 </svg>
             </div>
             <div>
-                <h1 class="text-xl font-bold text-white">Mon Assistant Patrimoinial</h1>
+                <h1 class="text-xl font-bold text-white">Mon Assistant Patrimonial</h1>
                 <p class="text-sm text-gray-200">En ligne</p>
             </div>
         </div>
     </header>
 
-    <!-- Zone de messages -->
     <div id="chat-messages" class="chat-container flex-1 overflow-y-auto p-4 space-y-4"></div>
 
-    <!-- Zone de saisie -->
     <footer class="p-4 border-t bg-white shadow-lg">
         <div class="max-w-4xl mx-auto flex gap-3">
             <input type="text" 
@@ -82,18 +77,19 @@
     </footer>
 
     <script>
+        // Variables globales
         let isFirstMessage = true;
+        let conversationId = null;
         const messagesContainer = document.getElementById('chat-messages');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
 
+        // Fonctions de formatage du texte
         function formatText(text) {
-            // Extraire et stocker les références
             const references = {};
             const referenceRegex = /\[(\^[0-9]+\^)\]:\s*(https?:\/\/[^\s]+)/g;
             let match;
             
-            // Nettoyer les références du texte principal
             text = text.split('\n').filter(line => {
                 match = referenceRegex.exec(line);
                 if (match) {
@@ -103,12 +99,9 @@
                 return true;
             }).join('\n');
         
-            // Convertir les titres (###)
             text = text.replace(/###\s+([^\n]+)/g, '<h3 class="text-xl font-bold text-purple-800 mb-3 mt-4">$1</h3>');
         
-            // Convertir les liens markdown avec des espaces
             text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
-                // S'assurer que l'URL est complète
                 url = url.trim();
                 if (!url.startsWith('http')) {
                     url = 'https://' + url;
@@ -116,10 +109,8 @@
                 return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">${linkText}</a>`;
             });
         
-            // Convertir le texte en gras
             text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold">$1</strong>');
         
-            // Convertir les références en liens
             text = text.replace(/\[(\^[0-9]+\^)\]/g, (match, ref) => {
                 const url = references[ref];
                 if (url) {
@@ -128,27 +119,21 @@
                 return match;
             });
         
-            // Traiter les tirets avec retour à la ligne
             text = text.replace(/- /g, '\n- ');
         
-            // Diviser le texte en paragraphes et traiter chaque paragraphe
             const paragraphs = text.split('\n').map(paragraph => {
-                // Si c'est un titre (déjà converti en h3)
                 if (paragraph.includes('<h3')) {
                     return paragraph;
                 }
-                // Si c'est un élément de liste
                 if (paragraph.trim().startsWith('- ')) {
                     return `<li class="ml-4 mb-2">• ${paragraph.substring(2)}</li>`;
                 }
-                // Si c'est un paragraphe non vide et pas un titre
                 if (paragraph.trim() && !paragraph.includes('<h3')) {
                     return `<p class="mb-2">${paragraph}</p>`;
                 }
                 return '';
-            }).filter(p => p); // Supprimer les paragraphes vides
+            }).filter(p => p);
         
-            // Regrouper les éléments de liste consécutifs
             let formattedHtml = '';
             let inList = false;
         
@@ -168,23 +153,19 @@
                 }
             });
         
-            // Fermer la dernière liste si nécessaire
             if (inList) {
                 formattedHtml += '</ul>';
             }
         
-            // Ajouter un espacement entre les sections
-            formattedHtml = `<div class="space-y-4">${formattedHtml}</div>`;
-        
-            return formattedHtml;
+            return `<div class="space-y-4">${formattedHtml}</div>`;
         }
 
+        // Fonctions de gestion des messages
         function appendMessage(sender, text) {
             const messageDiv = document.createElement('div');
             const messageId = Date.now();
             messageDiv.id = `message-${messageId}`;
             
-            // Conteneur du message avec alignement
             const messageContainer = document.createElement('div');
             messageContainer.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
             
@@ -222,13 +203,12 @@
             }
         }
         
+        // Fonction d'envoi de message
         async function sendMessage() {
             const question = userInput.value.trim();
             if (!question) return;
         
-            // Désactiver le bouton pendant l'envoi
             disableSendButton();
-        
             appendMessage('user', question);
             userInput.value = '';
             userInput.focus();
@@ -255,7 +235,6 @@
                 const data = await response.json();
                 conversationId = data.conversation_id;
                 
-                // Remplacer le message de chargement par la réponse
                 const messageDiv = document.getElementById(`message-${loadingId}`);
                 if (messageDiv) {
                     updateMessage(loadingId, 'bot', data.reponse);
@@ -268,140 +247,58 @@
                                    "Veuillez réessayer dans quelques instants.";
                 updateMessage(loadingId, 'bot', errorMessage);
             } finally {
-                // Réactiver le bouton après l'envoi
                 enableSendButton();
             }
         }
 
-function updateMessage(messageId, sender, text) {
-    const messageDiv = document.getElementById(`message-${messageId}`);
-    if (messageDiv) {
-        const messageContent = messageDiv.firstChild;
-        if (sender === 'bot') {
-            messageContent.innerHTML = formatText(text);
-        } else {
-            messageContent.textContent = text;
+        // Fonctions utilitaires
+        function disableSendButton() {
+            sendButton.disabled = true;
+            sendButton.classList.add('opacity-50');
         }
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-}
 
-function formatText(text) {
-    // Extraire et stocker les références
-    const references = {};
-    const referenceRegex = /\[(\^[0-9]+\^)\]:\s*(https?:\/\/[^\s]+)/g;
-    let match;
-    
-    // Nettoyer les références du texte principal
-    text = text.split('\n').filter(line => {
-        match = referenceRegex.exec(line);
-        if (match) {
-            references[match[1]] = match[2].trim();
-            return false;
+        function enableSendButton() {
+            sendButton.disabled = false;
+            sendButton.classList.remove('opacity-50');
         }
-        return true;
-    }).join('\n');
 
-    // Convertir les liens markdown avec des espaces
-    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
-        // S'assurer que l'URL est complète
-        if (!url.startsWith('http')) {
-            url = 'https://' + url;
-        }
-        return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">${linkText}</a>`;
-    });
-
-    // Convertir le texte en gras
-    text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold">$1</strong>');
-
-    // Convertir les références en liens
-    text = text.replace(/\[(\^[0-9]+\^)\]/g, (match, ref) => {
-        const url = references[ref];
-        if (url) {
-            return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">[${ref.replace(/\^/g, '')}]</a>`;
-        }
-        return match;
-    });
-
-    // Traiter les tirets avec retour à la ligne
-    text = text.replace(/- /g, '\n- ');
-
-    // Diviser le texte en paragraphes et traiter chaque paragraphe
-    const paragraphs = text.split('\n').map(paragraph => {
-        // Si c'est un élément de liste
-        if (paragraph.trim().startsWith('- ')) {
-            return `<li class="ml-4 mb-2">• ${paragraph.substring(2)}</li>`;
-        }
-        // Si c'est un paragraphe normal et non vide
-        if (paragraph.trim()) {
-            return `<p class="mb-2">${paragraph}</p>`;
-        }
-        return '';
-    }).filter(p => p); // Supprimer les paragraphes vides
-
-    // Regrouper les éléments de liste consécutifs
-    let formattedHtml = '';
-    let inList = false;
-
-    paragraphs.forEach((p, index) => {
-        if (p.startsWith('<li')) {
-            if (!inList) {
-                formattedHtml += '<ul class="my-2 space-y-1">';
-                inList = true;
+        function showWelcomeMessage() {
+            if (isFirstMessage) {
+                appendMessage('bot', "Bonjour ! 👋 Je suis votre assistant personnel en gestion de patrimoine. Je suis là pour répondre à vos questions et vous guider dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
+                isFirstMessage = false;
             }
-            formattedHtml += p;
-        } else {
-            if (inList) {
-                formattedHtml += '</ul>';
-                inList = false;
-            }
-            formattedHtml += p;
         }
-    });
 
-    if (inList) {
-        formattedHtml += '</ul>';
-    }
+        // Event Listeners
+        window.addEventListener('message', function(event) {
+            if (event.data === 'chatOpened') {
+                showWelcomeMessage();
+            }
+        });
 
-    return formattedHtml;
-}
-
-// Event Listeners
-sendButton.addEventListener('click', sendMessage);
-
-userInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        sendMessage();
-    }
-});
-
-// Désactiver le bouton pendant l'envoi
-function disableSendButton() {
-    sendButton.disabled = true;
-    sendButton.classList.add('opacity-50');
-}
-
-function enableSendButton() {
-    sendButton.disabled = false;
-    sendButton.classList.remove('opacity-50');
-}
-
-// Gérer le focus de l'input
-userInput.addEventListener('focus', () => {
-    userInput.classList.add('ring-2', 'ring-cyan-400');
-});
-
-userInput.addEventListener('blur', () => {
-    userInput.classList.remove('ring-2', 'ring-cyan-400');
-});
-
-// Gérer le redimensionnement de la fenêtre
-window.addEventListener('resize', () => {
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-});
-
-        // Afficher le message de bienvenue au chargement initial
-        showWelcomeMessage();
+        document.addEventListener('DOMContentLoaded', function() {
+            showWelcomeMessage();
+            
+            sendButton.addEventListener('click', sendMessage);
+            
+            userInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            userInput.addEventListener('focus', () => {
+                userInput.classList.add('ring-2', 'ring-cyan-400');
+            });
+            
+            userInput.addEventListener('blur', () => {
+                userInput.classList.remove('ring-2', 'ring-cyan-400');
+            });
+            
+            window.addEventListener('resize', () => {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            });
+        });
     </script>
 </body>
 </html>
