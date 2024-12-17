@@ -205,14 +205,30 @@
         
         // Fonction d'envoi de message
         async function sendMessage() {
-            const question = userInput.value.trim();
+            const question = userInput.value.trim().toLowerCase();
             if (!question) return;
         
+            // Désactiver le bouton pendant l'envoi
             disableSendButton();
-            appendMessage('user', question);
+        
+            appendMessage('user', userInput.value.trim());
             userInput.value = '';
             userInput.focus();
         
+            // Vérifier si c'est un remerciement
+            const thanksPatterns = [
+                'merci', 'thanks', 'thx', 'thank you',
+                'je vous remercie', 'je te remercie',
+                'remerciement'
+            ];
+            
+            if (thanksPatterns.some(pattern => question.includes(pattern))) {
+                appendMessage('bot', "Je vous en prie ! Je suis là pour vous aider. N'hésitez pas si vous avez d'autres questions. 😊");
+                enableSendButton();
+                return;
+            }
+        
+            // Si ce n'est pas un remerciement, continuer avec la recherche normale
             const loadingId = appendMessage('bot', "En train de réfléchir...");
         
             try {
