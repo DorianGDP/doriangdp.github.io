@@ -1,4 +1,3 @@
-# backend/chatbot.py
 import faiss
 import numpy as np
 import json
@@ -8,6 +7,9 @@ import time
 
 class ChatBot:
     def __init__(self, api_key):
+        """
+        Initialise le chatbot avec la base de données d'embeddings
+        """
         self.client = OpenAI(api_key=api_key)
         
         # Obtenir le chemin du répertoire courant
@@ -17,13 +19,42 @@ class ChatBot:
         index_path = os.path.join(current_dir, 'embeddings_db', 'faiss_index.idx')
         metadata_path = os.path.join(current_dir, 'embeddings_db', 'metadata.json')
         
-        # Charger les fichiers
+        # Charger l'index FAISS
         self.index = faiss.read_index(index_path)
+        
+        # Charger les metadata
         with open(metadata_path, 'r', encoding='utf-8') as f:
             self.metadata = json.load(f)
-        
+            
         # Initialiser l'historique des conversations
         self.conversations = {}
+
+    def get_query_embedding(self, question):
+        """
+        Crée l'embedding pour la question
+        """
+        response = self.client.embeddings.create(
+            model="text-embedding-ada-002",
+            input=question
+        )
+        return np.array(response.data[0].embedding, dtype='float32').reshape(1, -1)
+
+    def recherche_documents_pertinents(self, question, k=3):
+        """
+        Recherche les documents les plus pertinents
+        """
+        # Obtenir l'embedding de la question
+        question_embedding = self.get_query_embedding(question)
+        
+        # Rechercher les plus proches voisins
+        D, I = self.index.search(question_embedding, k)
+        
+        # Récupérer les documents pertinents
+        docs_pertinents = []
+        for idx in I[0]:
+            docs_pertinents.append(self.metadata[idx])
+            
+        return docs_pertinents
 
     def generer_reponse(self, question, documents_pertinents, conversation_id):
         """
