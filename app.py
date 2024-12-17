@@ -15,14 +15,16 @@ chatbot = ChatBot(api_key)
 def chat():
     data = request.json
     question = data.get('question')
+    conversation_id = data.get('conversation_id')
     
     if not question:
         return jsonify({'error': 'Question manquante'}), 400
         
     try:
-        reponse = chatbot.repondre_question(question)
+        reponse = chatbot.repondre_question(question, conversation_id)
         return jsonify(reponse)
     except Exception as e:
+        print(f"Erreur détaillée: {str(e)}")  # Pour le debugging
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
