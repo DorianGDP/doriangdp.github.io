@@ -4,16 +4,22 @@ import numpy as np
 import json
 from openai import OpenAI
 import os
+import time
 
 class ChatBot:
     def __init__(self, api_key):
-        """
-        Initialise le chatbot avec la base de données d'embeddings
-        """
         self.client = OpenAI(api_key=api_key)
-        self.index = faiss.read_index('embeddings_db/faiss_index.idx')
         
-        with open('embeddings_db/metadata.json', 'r', encoding='utf-8') as f:
+        # Obtenir le chemin du répertoire courant
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Construire les chemins absolus
+        index_path = os.path.join(current_dir, 'embeddings_db', 'faiss_index.idx')
+        metadata_path = os.path.join(current_dir, 'embeddings_db', 'metadata.json')
+        
+        # Charger les fichiers
+        self.index = faiss.read_index(index_path)
+        with open(metadata_path, 'r', encoding='utf-8') as f:
             self.metadata = json.load(f)
         
         # Initialiser l'historique des conversations
