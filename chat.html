@@ -68,16 +68,39 @@
         }
 
         function formatText(text) {
+            // Stocker les références et leurs URLs
+            const references = {};
+            const referenceRegex = /\[(\^[0-9]+\^)\]:\s*(https?:\/\/[^\s]+)/g;
+            let match;
+            
+            // Extraire les références et les URLs
+            text = text.split('\n').filter(line => {
+                match = referenceRegex.exec(line);
+                if (match) {
+                    references[match[1]] = match[2].trim();
+                    return false;
+                }
+                return true;
+            }).join('\n');
+        
             // Étape 1: Séparer le texte en paragraphes
             let paragraphs = text.split('\n\n');
             
             // Étape 2: Traiter chaque paragraphe
             paragraphs = paragraphs.map(paragraph => {
-                // Formater les liens
+                // Remplacer les références par des liens
+                paragraph = paragraph.replace(/\[(\^[0-9]+\^)\]/g, (match, ref) => {
+                    const url = references[ref];
+                    if (url) {
+                        return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">[${ref.replace(/\^/g, '')}]</a>`;
+                    }
+                    return match;
+                });
+        
+                // Formater les liens standards (comme avant)
                 paragraph = paragraph.replace(
                     /\[([^\]]+)\]\(([^)]+)\)/g, 
                     (match, text, url) => {
-                        // Nettoyer l'URL et le texte
                         url = url.trim();
                         text = text.trim();
                         return `<a href="${url}" class="block mt-1 text-blue-600 hover:text-blue-800 underline" target="_blank">→ ${text}</a>`;
