@@ -194,6 +194,15 @@ function formatText(text) {
         return true;
     }).join('\n');
 
+    // Convertir les liens markdown avec des espaces
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
+        // S'assurer que l'URL est complète
+        if (!url.startsWith('http')) {
+            url = 'https://' + url;
+        }
+        return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">${linkText}</a>`;
+    });
+
     // Convertir le texte en gras
     text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold">$1</strong>');
 
@@ -206,30 +215,47 @@ function formatText(text) {
         return match;
     });
 
-    // Convertir les liens markdown standards
-    text = text.replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2" class="text-blue-600 hover:text-blue-800 underline" target="_blank">$1</a>'
-    );
+    // Traiter les tirets avec retour à la ligne
+    text = text.replace(/- /g, '\n- ');
 
     // Diviser le texte en paragraphes et traiter chaque paragraphe
-    const paragraphs = text.split('\n\n').map(paragraph => {
-        // Vérifier si le paragraphe contient des éléments de liste
-        if (paragraph.includes('\n- ')) {
-            // Traiter les éléments de liste
-            const listItems = paragraph.split('\n- ').map((item, index) => {
-                if (index === 0 && !item.startsWith('- ')) {
-                    return `<p class="mb-2">${item}</p>`;
-                }
-                return `<li class="ml-4 mb-2">• ${item.replace(/^- /, '')}</li>`;
-            }).join('');
-            return `<ul class="my-2 space-y-1">${listItems}</ul>`;
+    const paragraphs = text.split('\n').map(paragraph => {
+        // Si c'est un élément de liste
+        if (paragraph.trim().startsWith('- ')) {
+            return `<li class="ml-4 mb-2">• ${paragraph.substring(2)}</li>`;
         }
-        // Si c'est un paragraphe normal
-        return `<p class="mb-2">${paragraph}</p>`;
+        // Si c'est un paragraphe normal et non vide
+        if (paragraph.trim()) {
+            return `<p class="mb-2">${paragraph}</p>`;
+        }
+        return '';
+    }).filter(p => p); // Supprimer les paragraphes vides
+
+    // Regrouper les éléments de liste consécutifs
+    let formattedHtml = '';
+    let inList = false;
+
+    paragraphs.forEach((p, index) => {
+        if (p.startsWith('<li')) {
+            if (!inList) {
+                formattedHtml += '<ul class="my-2 space-y-1">';
+                inList = true;
+            }
+            formattedHtml += p;
+        } else {
+            if (inList) {
+                formattedHtml += '</ul>';
+                inList = false;
+            }
+            formattedHtml += p;
+        }
     });
 
-    return paragraphs.join('\n');
+    if (inList) {
+        formattedHtml += '</ul>';
+    }
+
+    return formattedHtml;
 }
 
 // Event Listeners
