@@ -5,7 +5,7 @@ import os
 from chatbot import ChatBot
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Initialisation du chatbot
 api_key = os.environ.get('OPENAI_API_KEY')
