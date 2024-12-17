@@ -144,8 +144,11 @@
             if (e.key === 'Enter') sendMessage();
         });
 
-        // Message de bienvenue
-        appendMessage('bot', "Bonjour ! Je suis là pour vous aider avec vos questions sur la gestion de patrimoine. Comment puis-je vous assister aujourd'hui ?");
+        window.addEventListener('message', function(event) {
+            if (event.data === 'chatOpened') {
+                appendMessage('bot', "Bonjour ! Je suis là pour vous aider avec vos questions sur la gestion de patrimoine. Comment puis-je vous assister aujourd'hui ?");
+            }
+        });
     </script>
 </body>
 </html>
