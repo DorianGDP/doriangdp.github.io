@@ -194,6 +194,9 @@ function formatText(text) {
         return true;
     }).join('\n');
 
+    // Convertir les titres Markdown (###)
+    text = text.replace(/###\s+([^\n]+)/g, '<h3 class="text-xl font-bold text-purple-800 mb-3 mt-4">$1</h3>');
+
     // Convertir les liens markdown avec des espaces
     text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
         // S'assurer que l'URL est complète
@@ -220,6 +223,10 @@ function formatText(text) {
 
     // Diviser le texte en paragraphes et traiter chaque paragraphe
     const paragraphs = text.split('\n').map(paragraph => {
+        // Si c'est un titre (déjà converti en h3)
+        if (paragraph.includes('<h3')) {
+            return paragraph;
+        }
         // Si c'est un élément de liste
         if (paragraph.trim().startsWith('- ')) {
             return `<li class="ml-4 mb-2">• ${paragraph.substring(2)}</li>`;
