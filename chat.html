@@ -129,7 +129,11 @@
             }
         });
 
-        async function sendMessage() {
+// Au début du fichier chat.html, après les variables existantes
+let conversationId = null;
+
+// Modifier la fonction sendMessage
+async function sendMessage() {
     const question = userInput.value.trim();
     if (!question) return;
 
@@ -146,7 +150,10 @@
                 'Content-Type': 'application/json',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify({ question })
+            body: JSON.stringify({ 
+                question,
+                conversation_id: conversationId 
+            })
         });
 
         if (!response.ok) {
@@ -154,6 +161,7 @@
         }
 
         const data = await response.json();
+        conversationId = data.conversation_id;  // Sauvegarder l'ID de conversation
         updateMessage(loadingId, 'bot', data.reponse);
 
     } catch (error) {
