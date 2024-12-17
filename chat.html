@@ -67,19 +67,55 @@
             }
         }
 
+        function formatText(text) {
+            // Étape 1: Séparer le texte en paragraphes
+            let paragraphs = text.split('\n\n');
+            
+            // Étape 2: Traiter chaque paragraphe
+            paragraphs = paragraphs.map(paragraph => {
+                // Formater les liens
+                paragraph = paragraph.replace(
+                    /\[([^\]]+)\]\(([^)]+)\)/g, 
+                    (match, text, url) => {
+                        // Nettoyer l'URL et le texte
+                        url = url.trim();
+                        text = text.trim();
+                        return `<a href="${url}" class="block mt-1 text-blue-600 hover:text-blue-800 underline" target="_blank">→ ${text}</a>`;
+                    }
+                );
+        
+                // Gérer les listes
+                if (paragraph.trim().startsWith('-')) {
+                    const items = paragraph.split('\n-').map(item => item.trim());
+                    return `<ul class="list-disc pl-5 space-y-2">
+                        ${items.map(item => item ? `<li>${item.replace(/^-\s*/, '')}</li>` : '').join('')}
+                    </ul>`;
+                }
+        
+                // Paragraphe normal
+                return `<p class="mb-3">${paragraph}</p>`;
+            });
+        
+            // Étape 3: Réassembler le texte avec une meilleure structure
+            return `<div class="space-y-4">${paragraphs.join('')}</div>`;
+        }
+        
+        // Fonction annexe pour ajouter des sauts de ligne supplémentaires après certains éléments
         function appendMessage(sender, text) {
             const messageDiv = document.createElement('div');
-            const messageId = Date.now(); // Identifiant unique pour le message
+            const messageId = Date.now();
             messageDiv.id = `message-${messageId}`;
             
-            // Styles différents pour l'utilisateur et le bot
             if (sender === 'user') {
                 messageDiv.className = 'mb-4 p-3 rounded-lg bg-cyan-100 ml-8 text-gray-800';
+                messageDiv.textContent = text;
             } else {
                 messageDiv.className = 'mb-4 p-3 rounded-lg bg-gray-100 mr-8 text-gray-800';
+                // Ajout d'une div avec espacement pour le contenu du bot
+                const formattedText = formatText(text);
+                messageDiv.innerHTML = `<div class="space-y-4">${formattedText}</div>`;
             }
             
-            messageDiv.textContent = text;
             messagesContainer.appendChild(messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
             return messageId;
