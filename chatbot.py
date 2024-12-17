@@ -74,7 +74,7 @@ class ChatBot:
                     {"role": "user", "content": f"Question: {question}\n\nContexte:\n{context}"}
                 ],
                 temperature=0.7,
-                max_tokens=1000
+                max_tokens=500
             )
             
             return response.choices[0].message.content
