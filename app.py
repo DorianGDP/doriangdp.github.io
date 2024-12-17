@@ -28,17 +28,3 @@ def chat():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-
-# requirements.txt
-flask==2.0.1
-flask-cors==3.0.10
-faiss-cpu==1.7.2
-numpy==1.21.2
-openai==1.3.0
-gunicorn==20.1.0
-
-# Procfile
-web: gunicorn app:app
-
-# runtime.txt
-python-3.9.12
