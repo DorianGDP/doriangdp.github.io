@@ -88,7 +88,95 @@
         const sendButton = document.getElementById('send-button');
 
         function formatText(text) {
-            // Code de formatage existant...
+            // Extraire et stocker les références
+            const references = {};
+            const referenceRegex = /\[(\^[0-9]+\^)\]:\s*(https?:\/\/[^\s]+)/g;
+            let match;
+            
+            // Nettoyer les références du texte principal
+            text = text.split('\n').filter(line => {
+                match = referenceRegex.exec(line);
+                if (match) {
+                    references[match[1]] = match[2].trim();
+                    return false;
+                }
+                return true;
+            }).join('\n');
+        
+            // Convertir les titres (###)
+            text = text.replace(/###\s+([^\n]+)/g, '<h3 class="text-xl font-bold text-purple-800 mb-3 mt-4">$1</h3>');
+        
+            // Convertir les liens markdown avec des espaces
+            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
+                // S'assurer que l'URL est complète
+                url = url.trim();
+                if (!url.startsWith('http')) {
+                    url = 'https://' + url;
+                }
+                return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">${linkText}</a>`;
+            });
+        
+            // Convertir le texte en gras
+            text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold">$1</strong>');
+        
+            // Convertir les références en liens
+            text = text.replace(/\[(\^[0-9]+\^)\]/g, (match, ref) => {
+                const url = references[ref];
+                if (url) {
+                    return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">[${ref.replace(/\^/g, '')}]</a>`;
+                }
+                return match;
+            });
+        
+            // Traiter les tirets avec retour à la ligne
+            text = text.replace(/- /g, '\n- ');
+        
+            // Diviser le texte en paragraphes et traiter chaque paragraphe
+            const paragraphs = text.split('\n').map(paragraph => {
+                // Si c'est un titre (déjà converti en h3)
+                if (paragraph.includes('<h3')) {
+                    return paragraph;
+                }
+                // Si c'est un élément de liste
+                if (paragraph.trim().startsWith('- ')) {
+                    return `<li class="ml-4 mb-2">• ${paragraph.substring(2)}</li>`;
+                }
+                // Si c'est un paragraphe non vide et pas un titre
+                if (paragraph.trim() && !paragraph.includes('<h3')) {
+                    return `<p class="mb-2">${paragraph}</p>`;
+                }
+                return '';
+            }).filter(p => p); // Supprimer les paragraphes vides
+        
+            // Regrouper les éléments de liste consécutifs
+            let formattedHtml = '';
+            let inList = false;
+        
+            paragraphs.forEach((p, index) => {
+                if (p.startsWith('<li')) {
+                    if (!inList) {
+                        formattedHtml += '<ul class="my-2 space-y-1">';
+                        inList = true;
+                    }
+                    formattedHtml += p;
+                } else {
+                    if (inList) {
+                        formattedHtml += '</ul>';
+                        inList = false;
+                    }
+                    formattedHtml += p;
+                }
+            });
+        
+            // Fermer la dernière liste si nécessaire
+            if (inList) {
+                formattedHtml += '</ul>';
+            }
+        
+            // Ajouter un espacement entre les sections
+            formattedHtml = `<div class="space-y-4">${formattedHtml}</div>`;
+        
+            return formattedHtml;
         }
 
         function appendMessage(sender, text) {
@@ -96,10 +184,14 @@
             const messageId = Date.now();
             messageDiv.id = `message-${messageId}`;
             
+            // Conteneur du message avec alignement
+            const messageContainer = document.createElement('div');
+            messageContainer.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
+            
             const messageContent = document.createElement('div');
             messageContent.className = 'message-animation p-4 max-w-[80%] ' + 
                 (sender === 'user' 
-                    ? 'message-user text-white ml-auto' 
+                    ? 'message-user text-white' 
                     : 'message-bot text-gray-800');
             
             if (sender === 'bot') {
@@ -108,70 +200,78 @@
                 messageContent.textContent = text;
             }
             
-            messageDiv.appendChild(messageContent);
+            messageContainer.appendChild(messageContent);
+            messageDiv.appendChild(messageContainer);
             messagesContainer.appendChild(messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
             return messageId;
         }
-
-        // Fonction pour afficher le message de bienvenue
-        function showWelcomeMessage() {
-            if (isFirstMessage) {
-                appendMessage('bot', "Bonjour ! 👋 Je suis votre assistant personnel en gestion de patrimoine. Je suis là pour répondre à vos questions et vous guider dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
-                isFirstMessage = false;
+        
+        function updateMessage(messageId, sender, text) {
+            const messageDiv = document.getElementById(`message-${messageId}`);
+            if (messageDiv && messageDiv.firstChild && messageDiv.firstChild.firstChild) {
+                const messageContent = messageDiv.firstChild.firstChild;
+                if (sender === 'bot') {
+                    messageContent.innerHTML = formatText(text);
+                    messageContent.className = 'message-animation p-4 max-w-[80%] message-bot text-gray-800';
+                } else {
+                    messageContent.textContent = text;
+                    messageContent.className = 'message-animation p-4 max-w-[80%] message-user text-white';
+                }
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
             }
         }
-
-        // Écouter les messages de la fenêtre parente
-        window.addEventListener('message', function(event) {
-            if (event.data === 'chatOpened') {
-                showWelcomeMessage();
+        
+        async function sendMessage() {
+            const question = userInput.value.trim();
+            if (!question) return;
+        
+            // Désactiver le bouton pendant l'envoi
+            disableSendButton();
+        
+            appendMessage('user', question);
+            userInput.value = '';
+            userInput.focus();
+        
+            const loadingId = appendMessage('bot', "En train de réfléchir...");
+        
+            try {
+                const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        question,
+                        conversation_id: conversationId 
+                    })
+                });
+        
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP: ${response.status}`);
+                }
+        
+                const data = await response.json();
+                conversationId = data.conversation_id;
+                
+                // Remplacer le message de chargement par la réponse
+                const messageDiv = document.getElementById(`message-${loadingId}`);
+                if (messageDiv) {
+                    updateMessage(loadingId, 'bot', data.reponse);
+                }
+        
+            } catch (error) {
+                console.error('Erreur:', error);
+                const errorMessage = "Désolé, je rencontre actuellement des difficultés. " +
+                                   "L'API pourrait être en cours de démarrage (1-2min au premier accès). " +
+                                   "Veuillez réessayer dans quelques instants.";
+                updateMessage(loadingId, 'bot', errorMessage);
+            } finally {
+                // Réactiver le bouton après l'envoi
+                enableSendButton();
             }
-        });
-
-// Au début du fichier chat.html, après les variables existantes
-let conversationId = null;
-
-// Modifier la fonction sendMessage
-async function sendMessage() {
-    const question = userInput.value.trim();
-    if (!question) return;
-
-    appendMessage('user', question);
-    userInput.value = '';
-    userInput.focus();
-
-    const loadingId = appendMessage('bot', "En train de réfléchir...");
-
-    try {
-        const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({ 
-                question,
-                conversation_id: conversationId 
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Erreur HTTP: ${response.status}`);
         }
-
-        const data = await response.json();
-        conversationId = data.conversation_id;  // Sauvegarder l'ID de conversation
-        updateMessage(loadingId, 'bot', data.reponse);
-
-    } catch (error) {
-        console.error('Erreur:', error);
-        const errorMessage = "Désolé, je rencontre actuellement des difficultés. " +
-                           "L'API pourrait être en cours de démarrage (1-2min au premier accès). " +
-                           "Veuillez réessayer dans quelques instants.";
-        updateMessage(loadingId, 'bot', errorMessage);
-    }
-}
 
 function updateMessage(messageId, sender, text) {
     const messageDiv = document.getElementById(`message-${messageId}`);
