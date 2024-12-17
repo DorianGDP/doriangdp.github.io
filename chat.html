@@ -1,15 +1,26 @@
-// chat.html 
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body class="p-4">
-    <div id="chat-messages" class="h-[500px] overflow-y-auto mb-4"></div>
-    <div class="flex gap-2">
-        <input type="text" id="user-input" class="flex-1 p-2 border rounded" placeholder="Posez votre question...">
-        <button id="send-button" class="bg-cyan-400 text-white px-4 py-2 rounded">Envoyer</button>
+<body class="p-4 bg-gray-100">
+    <!-- Container principal avec fond blanc -->
+    <div class="bg-white rounded-lg shadow-lg p-4 max-w-4xl mx-auto">
+        <!-- Zone des messages avec fond blanc -->
+        <div id="chat-messages" class="h-[500px] overflow-y-auto mb-4 bg-white border rounded-lg p-4"></div>
+        
+        <!-- Zone de saisie -->
+        <div class="flex gap-2">
+            <input type="text" 
+                   id="user-input" 
+                   class="flex-1 p-2 border rounded text-gray-800 bg-white" 
+                   placeholder="Posez votre question...">
+            <button id="send-button" 
+                    class="bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-2 rounded font-medium">
+                Envoyer
+            </button>
+        </div>
     </div>
 
     <script>
@@ -25,28 +36,60 @@
             appendMessage('user', question);
             userInput.value = '';
 
+            // Afficher un message de chargement
+            const loadingId = appendMessage('bot', "En train de réfléchir...");
+
             try {
                 const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
                     body: JSON.stringify({ question })
                 });
 
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP: ${response.status}`);
+                }
+
                 const data = await response.json();
-                appendMessage('bot', data.reponse);
+                
+                // Remplacer le message de chargement par la réponse
+                updateMessage(loadingId, 'bot', data.reponse);
+
             } catch (error) {
-                appendMessage('bot', "Désolé, une erreur s'est produite.");
+                console.error('Erreur:', error);
+                const errorMessage = "Désolé, je rencontre des difficultés pour répondre. " +
+                                   "L'API pourrait être en cours de démarrage (1-2min au premier accès). " +
+                                   "Veuillez réessayer dans quelques instants.";
+                updateMessage(loadingId, 'bot', errorMessage);
             }
         }
 
         function appendMessage(sender, text) {
             const messageDiv = document.createElement('div');
-            messageDiv.className = `mb-4 p-2 rounded ${sender === 'user' ? 'bg-gray-100 ml-8' : 'bg-cyan-100 mr-8'}`;
+            const messageId = Date.now(); // Identifiant unique pour le message
+            messageDiv.id = `message-${messageId}`;
+            
+            // Styles différents pour l'utilisateur et le bot
+            if (sender === 'user') {
+                messageDiv.className = 'mb-4 p-3 rounded-lg bg-cyan-100 ml-8 text-gray-800';
+            } else {
+                messageDiv.className = 'mb-4 p-3 rounded-lg bg-gray-100 mr-8 text-gray-800';
+            }
+            
             messageDiv.textContent = text;
             messagesContainer.appendChild(messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return messageId;
+        }
+
+        function updateMessage(messageId, sender, text) {
+            const messageDiv = document.getElementById(`message-${messageId}`);
+            if (messageDiv) {
+                messageDiv.textContent = text;
+            }
         }
 
         sendButton.addEventListener('click', sendMessage);
