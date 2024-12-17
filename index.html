@@ -160,11 +160,13 @@
                 chatOverlay.classList.toggle('visible');
                 if (chatbotContainer.classList.contains('visible')) {
                     document.body.style.overflow = 'hidden';
+                    // Envoyer un message à l'iframe pour déclencher le message de bienvenue
+                    const chatFrame = document.querySelector('iframe');
+                    chatFrame.contentWindow.postMessage('chatOpened', '*');
                 } else {
                     document.body.style.overflow = '';
                 }
             }
-
             chatbotButton.addEventListener('click', toggleChat);
             closeChatbot.addEventListener('click', toggleChat);
             chatOverlay.addEventListener('click', toggleChat);
