@@ -1,3 +1,10 @@
+# backend/chatbot.py
+import faiss
+import numpy as np
+import json
+from openai import OpenAI
+import os
+
 class ChatBot:
     def __init__(self, api_key):
         """
