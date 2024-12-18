@@ -253,7 +253,7 @@ class ChatBot:
     
             # Générer la réponse
             response = self.client.chat.completions.create(
-                model="gpt-4",  # Correction du modèle
+                model="gpt-4o",  # Correction du modèle
                 messages=messages,
                 temperature=0.7,
                 max_tokens=500
