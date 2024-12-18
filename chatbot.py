@@ -92,32 +92,55 @@ class ChatBot:
         except Exception as e:
             print(f"Erreur Supabase: {str(e)}")
             return False
+            
     def track_lead_info(self, conversation_id, new_info):
-            """Analyse et stocke les informations du lead"""
-            # Récupérer ou créer les données du lead
-            lead_info = self.lead_data.get(conversation_id, {
+        """Analyse et stocke les informations du lead de manière persistante"""
+        
+        # Récupérer ou initialiser les infos du lead depuis Supabase
+        existing_lead = self.supabase.table('leads')\
+            .select('*')\
+            .eq('conversation_id', conversation_id)\
+            .execute()
+        
+        if existing_lead.data:
+            lead_info = existing_lead.data[0]
+        else:
+            lead_info = {
                 'name': None,
                 'profession': None,
                 'patrimoine': None,
                 'objectifs': None,
                 'contact': None,
-                'status': 'new'
+                'status': 'new',
+                'conversation_history': []
+            }
+    
+        # Mettre à jour avec les nouvelles informations
+        for key in new_info:
+            if new_info[key] and not lead_info.get(key):
+                lead_info[key] = new_info[key]
+        
+        # Vérifier et mettre à jour le statut
+        if all([lead_info.get(k) for k in ['name', 'contact', 'patrimoine']]):
+            lead_info['status'] = 'qualified'
+        
+        # Gérer l'historique des conversations
+        if 'conversation_history' not in lead_info:
+            lead_info['conversation_history'] = []
+        
+        # Ajouter seulement si new_info contient une question/réponse
+        if new_info.get('question') or new_info.get('response'):
+            lead_info['conversation_history'].append({
+                'timestamp': time.time(),
+                'question': new_info.get('question', ''),
+                'response': new_info.get('response', '')
             })
-            
-            # Mettre à jour avec les nouvelles informations
-            for key in new_info:
-                if new_info[key] and not lead_info[key]:  # Ne mettre à jour que si l'information est nouvelle
-                    lead_info[key] = new_info[key]
-            
-            # Mettre à jour le statut si toutes les infos nécessaires sont collectées
-            if all([lead_info.get(k) for k in ['name', 'contact', 'patrimoine']]):
-                lead_info['status'] = 'qualified'
-                
-            # Sauvegarder dans la mémoire locale et Supabase
-            self.lead_data[conversation_id] = lead_info
-            self.update_lead_data(conversation_id, lead_info)
-            
-            return lead_info
+        
+        # Sauvegarder dans Supabase et mémoire locale
+        self.update_lead_data(conversation_id, lead_info)
+        self.lead_data[conversation_id] = lead_info
+        
+        return lead_info
 
     def extract_lead_info(self, text):
         """Extraire les informations du texte avec GPT"""
@@ -126,15 +149,21 @@ class ChatBot:
                 model="gpt-4o",
                 messages=[{
                     "role": "system",
-                    "content": """Tu es un expert en analyse de texte. Extrait UNIQUEMENT les informations suivantes si elles sont explicitement mentionnées (renvoie null si non mentionné) :
+                    "content": """Analyse le texte et extrait les informations suivantes au format JSON strict :
                     {
-                        "name": "nom complet si mentionné",
-                        "profession": "profession ou situation professionnelle",
-                        "patrimoine": "montant ou fourchette de patrimoine",
-                        "contact": "email ou téléphone",
-                        "objectifs": "objectifs patrimoniaux mentionnés"
+                        "name": null,
+                        "profession": null,
+                        "patrimoine": null,
+                        "contact": null,
+                        "objectifs": null
                     }
-                    Ne fais pas de suppositions. N'extrait que les informations explicites."""
+                    Règles :
+                    - Renvoie EXACTEMENT ce format JSON
+                    - Remplace 'null' par la valeur si trouvée
+                    - Pour le patrimoine : extrait les montants/fourchettes
+                    - Pour le contact : extrait email/téléphone
+                    - Ne fait AUCUNE supposition
+                    - N'extrait que les informations EXPLICITEMENT mentionnées"""
                 }, {
                     "role": "user",
                     "content": text
@@ -147,69 +176,86 @@ class ChatBot:
             return {}
 
     def generer_reponse(self, question, documents_pertinents, conversation_id):
-        """Génère une réponse avec GPT-4 en tenant compte de l'historique"""
         try:
             # Extraire et tracker les infos du lead
             new_info = self.extract_lead_info(question)
             lead_info = self.track_lead_info(conversation_id, new_info)
             
-            # Obtenir la prochaine question à poser
-            next_question = self.get_next_question(lead_info)
-            
+            # Vérifier les informations manquantes
+            missing_info = []
+            for field in ['name', 'profession', 'patrimoine', 'contact']:
+                if not lead_info.get(field):
+                    missing_info.append(field)
+    
+            # Obtenir la prochaine question spécifique
+            next_question = None
+            if missing_info:
+                field_to_ask = missing_info[0]  # Prendre la première information manquante
+                next_question = np.random.choice(self.QUALIFICATION_QUESTIONS[field_to_ask])
+    
+            # Construire un contexte plus riche
+            conversation_context = f"""
+            Informations actuelles sur le visiteur :
+            - Nom : {lead_info.get('name', 'Non renseigné')}
+            - Profession : {lead_info.get('profession', 'Non renseigné')}
+            - Patrimoine : {lead_info.get('patrimoine', 'Non renseigné')}
+            - Contact : {lead_info.get('contact', 'Non renseigné')}
+            - Objectifs : {lead_info.get('objectifs', 'Non renseigné')}
+    
+            Informations manquantes : {', '.join(missing_info) if missing_info else 'Aucune'}
+            Prochaine question à poser : {next_question if next_question else 'Passage à la proposition de rendez-vous'}
+            """
+    
+            # Récupérer l'historique complet
             conversation_history = self.conversations.get(conversation_id, [])
             
-            system_prompt = """Tu es Emma, l'assistante virtuelle experte de gestiondepatrimoine.com. Ta mission PRINCIPALE est de collecter des informations sur les visiteurs tout en les guidant vers nos services.
-
-RÈGLES FONDAMENTALES :
-1. NE JAMAIS donner de réponses détaillées directement
-2. Toujours reconnaître brièvement l'intérêt de la question (1-2 phrases max)
-3. Expliquer que pour une réponse précise et personnalisée, tu as besoin d'en savoir plus
-4. Poser UNE question ciblée pour obtenir une information manquante
-
-Si toutes les informations sont collectées (nom, contact, patrimoine):
-- Proposer un rendez-vous avec un expert
-- Mentionner que c'est gratuit et sans engagement
-- Expliquer que c'est le meilleur moyen d'obtenir des réponses précises
-
-Ton objectif est de COLLECTER des informations, pas d'en donner."""
-
             messages = [
-                {"role": "system", "content": system_prompt}
+                {"role": "system", "content": """Tu es Emma, l'assistante virtuelle experte de gestiondepatrimoine.com.
+                
+                OBJECTIF PRINCIPAL : Collecter progressivement toutes les informations sur le visiteur.
+                
+                RÈGLES DE CONVERSATION :
+                1. Être naturelle et empathique
+                2. Ne donner que des réponses très brèves aux questions (1-2 phrases)
+                3. Toujours enchaîner avec une question pour collecter une information manquante
+                4. Si toutes les informations sont collectées, proposer un rendez-vous gratuit
+                5. Maintenir le fil de la conversation en faisant référence aux échanges précédents
+                
+                STRATÉGIE DE COLLECTE :
+                - Nom → Pour personnalisation
+                - Profession → Pour solutions adaptées
+                - Patrimoine → Pour conseils pertinents
+                - Contact → Pour suivi personnalisé
+                """}
             ]
             
+            # Ajouter l'historique complet
             messages.extend(conversation_history)
             
-            prompt = f"""Question du visiteur: {question}
-
-Informations collectées:
-Nom: {lead_info.get('name', 'Non renseigné')}
-Profession: {lead_info.get('profession', 'Non renseigné')}
-Patrimoine: {lead_info.get('patrimoine', 'Non renseigné')}
-Contact: {lead_info.get('contact', 'Non renseigné')}
-Objectifs: {lead_info.get('objectifs', 'Non renseigné')}
-
-Prochaine information à demander: {next_question if next_question else 'Toutes les informations sont collectées'}"""
-
-            messages.append({"role": "user", "content": prompt})
-            
+            # Ajouter le contexte actuel
+            messages.append({"role": "user", "content": f"Question du visiteur: {question}\n\nContexte:\n{conversation_context}"})
+    
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
                 temperature=0.7,
-                max_tokens=500,
-                stop=None
+                max_tokens=500
             )
-            
-            contenu = response.choices[0].message.content
-            
-            # Sauvegarder la conversation
+    
+            reponse = response.choices[0].message.content
+    
+            # Sauvegarder l'historique
             self.conversations[conversation_id] = conversation_history + [
                 {"role": "user", "content": question},
-                {"role": "assistant", "content": contenu}
+                {"role": "assistant", "content": reponse}
             ]
-            
-            return contenu
-                
+    
+            # Si toutes les informations sont collectées, ajouter une proposition de rendez-vous
+            if not missing_info:
+                reponse += "\n\nJ'ai maintenant une bonne compréhension de votre situation. Le mieux serait d'organiser un échange gratuit avec l'un de nos experts qui pourra vous apporter des réponses détaillées et personnalisées. Souhaitez-vous que je planifie ce rendez-vous ?"
+    
+            return reponse
+    
         except Exception as e:
             return f"Erreur lors de la génération de la réponse: {str(e)}"
 
