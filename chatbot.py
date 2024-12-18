@@ -101,7 +101,8 @@ class ChatBot:
                 stop=None
             )
             contenu = response.choices[0].message.content
-
+            if len(contenu) >= 900:  # Seuil augmenté significativement
+                contenu = contenu.rsplit('.', 1)[0] + ".\n\nNote : La réponse est longue, n'hésitez pas à me poser des questions spécifiques pour plus de détails."
             # Sauvegarder la question et la réponse dans l'historique
             self.conversations[conversation_id] = conversation_history + [
                 {"role": "user", "content": question},
