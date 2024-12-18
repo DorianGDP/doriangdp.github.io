@@ -94,18 +94,18 @@ class ChatBot:
     def update_lead_data(self, conversation_id, lead_data):
         """Mise à jour des données du lead dans Supabase"""
         try:
-            existing_lead = self.supabase.table('leads')\
+            existing_lead = self.supabase.table('conversations')\
                 .select('*')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
 
             if not existing_lead.data:
-                self.supabase.table('leads').insert({
+                self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
                     **lead_data
                 }).execute()
             else:
-                self.supabase.table('leads')\
+                self.supabase.table('conversations')\
                     .update(lead_data)\
                     .eq('conversation_id', conversation_id)\
                     .execute()
