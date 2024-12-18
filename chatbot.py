@@ -4,6 +4,7 @@ import json
 from openai import OpenAI
 import os
 import time
+from supabase import create_client
 
 class ChatBot:
     def __init__(self, api_key):
