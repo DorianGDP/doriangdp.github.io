@@ -26,6 +26,27 @@ class ChatBot:
             "Pour vous envoyer une étude personnalisée de votre situation, quel serait le meilleur moyen de vous contacter ?"
         ]
     }
+    SYSTEM_PROMPT = """Tu es Emma, l'assistante virtuelle de gestiondepatrimoine.com.
+    
+    TON RÔLE :
+    - Guider naturellement la conversation pour collecter des informations sur le client
+    - Adapter ton approche selon le contexte et l'historique
+    - Donner des micro-réponses pour maintenir l'engagement
+    
+    RÈGLES DE CONVERSATION :
+    1. TOUJOURS remercier quand une information est partagée
+    2. TOUJOURS rebondir sur l'information donnée avant de poser une nouvelle question
+    3. NE JAMAIS poser plus d'une question à la fois
+    4. NE JAMAIS redemander une information déjà donnée
+    5. Rester naturelle et empathique
+    
+    INFORMATIONS À COLLECTER (dans l'ordre optimal) :
+    1. Nom → Pour personnaliser l'échange
+    2. Profession → Pour les solutions fiscales
+    3. Patrimoine → Pour les recommandations
+    4. Contact → Pour le suivi
+    
+    Une fois toutes les informations collectées, proposer un rendez-vous expert gratuit."""
 
     def __init__(self, api_key):
         """Initialise le chatbot avec la base de données d'embeddings"""
@@ -93,193 +114,121 @@ class ChatBot:
             print(f"Erreur Supabase: {str(e)}")
             return False
             
-    def track_lead_info(self, conversation_id, new_info, question=None, reponse=None):
-        """Analyse et stocke les informations du lead de manière persistante"""
-        
-        # Récupérer ou initialiser les infos du lead depuis Supabase
-        existing_lead = self.supabase.table('leads')\
+    def track_lead_info(self, conversation_id, new_info, interaction=None):
+        """Gestion simplifiée des informations"""
+        data = self.supabase.table('conversations')\
             .select('*')\
             .eq('conversation_id', conversation_id)\
             .execute()
-        
-        if existing_lead.data:
-            lead_info = existing_lead.data[0]
+    
+        if data.data:
+            record = data.data[0]
+            lead_data = record.get('lead_data', {})
+            history = record.get('conversation_history', [])
         else:
-            lead_info = {
-                'name': None,
-                'profession': None,
-                'patrimoine': None,
-                'objectifs': None,
-                'contact': None,
-                'status': 'new',
-                'conversation_history': []
-            }
+            lead_data = {}
+            history = []
     
-        # Mettre à jour l'historique si une nouvelle interaction est fournie
-        if question and reponse:
-            if 'conversation_history' not in lead_info:
-                lead_info['conversation_history'] = []
-            lead_info['conversation_history'].append({
-                'timestamp': time.time(),
-                'question': question,
-                'response': reponse
-            })
+        # Mettre à jour les infos
+        if new_info:
+            lead_data.update(new_info)
     
-        # Mettre à jour avec les nouvelles informations
-        for key in new_info:
-            if new_info[key] and not lead_info.get(key):
-                lead_info[key] = new_info[key]
-        
-        # Vérifier et mettre à jour le statut
-        if all([lead_info.get(k) for k in ['name', 'contact', 'patrimoine']]):
-            lead_info['status'] = 'qualified'
-        
-        # Sauvegarder dans Supabase et mémoire locale
-        self.update_lead_data(conversation_id, lead_info)
-        self.lead_data[conversation_id] = lead_info
-        
-        return lead_info
+        # Ajouter l'interaction à l'historique
+        if interaction:
+            history.append(interaction)
+    
+        # Sauvegarder
+        if data.data:
+            self.supabase.table('conversations').update({
+                'lead_data': lead_data,
+                'conversation_history': history
+            }).eq('conversation_id', conversation_id).execute()
+        else:
+            self.supabase.table('conversations').insert({
+                'conversation_id': conversation_id,
+                'lead_data': lead_data,
+                'conversation_history': history
+            }).execute()
+    
+        return lead_data, history
 
     def extract_lead_info(self, text):
         """Extraire les informations du texte avec GPT"""
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o",  # Corrigé de gpt-4o
                 messages=[{
                     "role": "system",
-                    "content": """Analyse le texte et extrait les informations suivantes au format JSON strict :
-                    {
-                        "name": null,
-                        "profession": null,
-                        "patrimoine": null,
-                        "contact": null,
-                        "objectifs": null
-                    }
-                    Règles :
-                    - Renvoie EXACTEMENT ce format JSON
-                    - Remplace 'null' par la valeur si trouvée
-                    - Pour le patrimoine : extrait les montants/fourchettes
-                    - Pour le contact : extrait email/téléphone
-                    - Ne fait AUCUNE supposition
-                    - N'extrait que les informations EXPLICITEMENT mentionnées"""
+                    "content": """Tu es un expert en extraction d'informations.
+                    Analyse le texte et retourne UNIQUEMENT un objet JSON avec les informations trouvées.
+                    - name: prénom/nom mentionnés
+                    - profession: métier ou situation professionnelle
+                    - patrimoine: montants ou fourchettes financières
+                    - contact: email ou téléphone
+                    - objectifs: buts patrimoniaux explicites
+                    
+                    IMPORTANT: 
+                    - Renvoie null si l'information n'est pas explicitement mentionnée
+                    - N'invente aucune information
+                    - Ne fais aucune déduction"""
                 }, {
                     "role": "user",
                     "content": text
                 }],
-                temperature=0.3,
+                temperature=0.2,  # Réduit pour plus de précision
                 max_tokens=200
             )
             return json.loads(response.choices[0].message.content)
         except:
             return {}
 
-    def generer_reponse(self, question, documents_pertinents, conversation_id):
+    def generer_reponse(self, question, conversation_id):
         try:
-            # Extraire les infos du lead
+            # Extraire les infos de la question actuelle
             new_info = self.extract_lead_info(question)
             
-            # Récupérer l'historique complet depuis Supabase
-            existing_lead = self.supabase.table('leads')\
-                .select('*')\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-                
-            # Construire l'historique complet des conversations
-            conversation_history = []
-            if existing_lead.data and existing_lead.data[0].get('conversation_history'):
-                for interaction in existing_lead.data[0]['conversation_history']:
-                    conversation_history.extend([
-                        {"role": "user", "content": interaction['question']},
-                        {"role": "assistant", "content": interaction['response']}
-                    ])
+            # Récupérer l'état actuel de la conversation
+            lead_data, history = self.track_lead_info(conversation_id, new_info)
             
-            # Mettre à jour les informations du lead
-            lead_info = self.track_lead_info(conversation_id, new_info, question=question)
-            
-            # Identifier les informations manquantes
-            missing_info = []
-            for field in ['name', 'profession', 'patrimoine', 'contact']:
-                if not lead_info.get(field):
-                    missing_info.append(field)
+            # Préparer le contexte
+            context = f"""
+            Informations client actuelles :
+            {json.dumps(lead_data, indent=2)}
     
-            # Sélectionner la prochaine question à poser
-            next_question = None
-            if missing_info:
-                field_to_ask = missing_info[0]
-                next_question = np.random.choice(self.QUALIFICATION_QUESTIONS[field_to_ask])
-    
-            # Construire le contexte de la conversation
-            conversation_context = f"""
-            État actuel de la conversation :
-            
-            INFORMATIONS CLIENT :
-            - Nom : {lead_info.get('name', 'Non renseigné')}
-            - Profession : {lead_info.get('profession', 'Non renseigné')}
-            - Patrimoine : {lead_info.get('patrimoine', 'Non renseigné')}
-            - Contact : {lead_info.get('contact', 'Non renseigné')}
-            - Objectifs : {lead_info.get('objectifs', 'Non renseigné')}
-    
-            DIRECTIVE :
-            {f'Information à obtenir : {missing_info[0]}' if missing_info else 'Toutes les informations sont collectées - Proposer un rendez-vous'}
-            
-            PROCHAINE QUESTION :
-            {next_question if next_question else 'Passer à la proposition de rendez-vous'}
-            
-            Nombre d'échanges précédents : {len(conversation_history)//2}
+            Historique récent :
+            {json.dumps(history[-3:], indent=2) if history else "Aucun"}
             """
-    
-            # Construire le message pour GPT
-            messages = [
-                {"role": "system", "content": """Tu es Emma, l'assistante virtuelle experte de gestiondepatrimoine.com.
-                
-                OBJECTIF : Collecter subtilement les informations client tout en maintenant une conversation naturelle.
-                
-                RÈGLES ESSENTIELLES :
-                1. Être accueillante et empathique
-                2. Répondre TRÈS brièvement aux questions (1-2 phrases maximum)
-                3. TOUJOURS enchaîner avec une question pour obtenir une information manquante
-                4. Adapter les questions au contexte de la conversation
-                5. Une fois toutes les informations collectées, orienter vers un rendez-vous
-                
-                FORMAT DE RÉPONSE :
-                1. Brève réponse à la question du client (si pertinent)
-                2. Transition naturelle
-                3. Question pour obtenir une information manquante"""}
-            ]
-    
-            # Ajouter l'historique et le contexte actuel
-            messages.extend(conversation_history)
-            messages.append({"role": "user", "content": f"Question client: {question}\n\nContexte:\n{conversation_context}"})
-    
+            
             # Générer la réponse
             response = self.client.chat.completions.create(
-                model="gpt-4o",  # Correction du modèle
-                messages=messages,
-                temperature=0.7,
-                max_tokens=500
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Question: {question}\nContexte: {context}"}
+                ],
+                temperature=0.7
             )
     
             reponse = response.choices[0].message.content
-    
-            # Mettre à jour l'historique
-            self.track_lead_info(conversation_id, new_info, question, reponse)
-    
-            # Ajouter la proposition de rendez-vous si toutes les informations sont collectées
-            if not missing_info:
-                reponse += "\n\nJe vois que nous avons tous les éléments nécessaires pour vous aider efficacement. Le mieux serait maintenant d'organiser un échange gratuit avec l'un de nos experts pour vous apporter des réponses détaillées et personnalisées. Souhaitez-vous que je planifie ce rendez-vous ?"
+            
+            # Sauvegarder l'interaction
+            self.track_lead_info(conversation_id, None, {
+                'question': question,
+                'response': reponse
+            })
     
             return reponse
     
         except Exception as e:
-            return f"Erreur lors de la génération de la réponse: {str(e)}"
+            return f"Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?"
 
     def repondre_question(self, question, conversation_id=None):
         """Point d'entrée principal du chatbot"""
         if conversation_id is None:
             conversation_id = str(time.time())
-            
-        docs_pertinents = self.recherche_documents_pertinents(question)
-        reponse = self.generer_reponse(question, docs_pertinents, conversation_id)
+        
+        # Plus besoin de docs_pertinents ici
+        reponse = self.generer_reponse(question, conversation_id)
         
         return {
             'reponse': reponse,
