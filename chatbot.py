@@ -16,6 +16,9 @@ class ChatBot:
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(supabase_url, supabase_key)
+
+        # Initialiser le dictionnaire pour stocker les données des leads
+        self.lead_data = {}
         
         # Obtenir le chemin du répertoire courant
         current_dir = os.path.dirname(os.path.abspath(__file__))
