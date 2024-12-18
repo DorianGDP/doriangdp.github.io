@@ -13,8 +13,8 @@ class ChatBot:
         """
         self.client = OpenAI(api_key=api_key)
 
-        supabase_url = os.getenv("https://guelpnbwgcelvfjwinra.supabase.co")
-        supabase_key = os.getenv("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd1ZWxwbmJ3Z2NlbHZmandpbnJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzI3MDA2NDYsImV4cCI6MjA0ODI3NjY0Nn0.I2XlKsP0VHaIx58DDaVw5BS2v3oG-kq7VxOJCtny8ZE")
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(supabase_url, supabase_key)
         
         # Obtenir le chemin du répertoire courant
