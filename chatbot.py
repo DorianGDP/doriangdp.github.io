@@ -92,32 +92,32 @@ class ChatBot:
         except Exception as e:
             print(f"Erreur Supabase: {str(e)}")
             return False
-def track_lead_info(self, conversation_id, new_info):
-        """Analyse et stocke les informations du lead"""
-        # Récupérer ou créer les données du lead
-        lead_info = self.lead_data.get(conversation_id, {
-            'name': None,
-            'profession': None,
-            'patrimoine': None,
-            'objectifs': None,
-            'contact': None,
-            'status': 'new'
-        })
-        
-        # Mettre à jour avec les nouvelles informations
-        for key in new_info:
-            if new_info[key] and not lead_info[key]:  # Ne mettre à jour que si l'information est nouvelle
-                lead_info[key] = new_info[key]
-        
-        # Mettre à jour le statut si toutes les infos nécessaires sont collectées
-        if all([lead_info.get(k) for k in ['name', 'contact', 'patrimoine']]):
-            lead_info['status'] = 'qualified'
+    def track_lead_info(self, conversation_id, new_info):
+            """Analyse et stocke les informations du lead"""
+            # Récupérer ou créer les données du lead
+            lead_info = self.lead_data.get(conversation_id, {
+                'name': None,
+                'profession': None,
+                'patrimoine': None,
+                'objectifs': None,
+                'contact': None,
+                'status': 'new'
+            })
             
-        # Sauvegarder dans la mémoire locale et Supabase
-        self.lead_data[conversation_id] = lead_info
-        self.update_lead_data(conversation_id, lead_info)
-        
-        return lead_info
+            # Mettre à jour avec les nouvelles informations
+            for key in new_info:
+                if new_info[key] and not lead_info[key]:  # Ne mettre à jour que si l'information est nouvelle
+                    lead_info[key] = new_info[key]
+            
+            # Mettre à jour le statut si toutes les infos nécessaires sont collectées
+            if all([lead_info.get(k) for k in ['name', 'contact', 'patrimoine']]):
+                lead_info['status'] = 'qualified'
+                
+            # Sauvegarder dans la mémoire locale et Supabase
+            self.lead_data[conversation_id] = lead_info
+            self.update_lead_data(conversation_id, lead_info)
+            
+            return lead_info
 
     def extract_lead_info(self, text):
         """Extraire les informations du texte avec GPT"""
