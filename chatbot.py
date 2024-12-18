@@ -101,10 +101,7 @@ class ChatBot:
                 stop=None
             )
             contenu = response.choices[0].message.content
-            # Vérifier si la réponse semble tronquée
-            if len(contenu) >= 450:  # Seuil proche de la limite
-                contenu = contenu.rsplit('.', 1)[0] + ".\n\nNote : La réponse est longue, n'hésitez pas à me poser des questions spécifiques pour plus de détails."
-    
+
             # Sauvegarder la question et la réponse dans l'historique
             self.conversations[conversation_id] = conversation_history + [
                 {"role": "user", "content": question},
