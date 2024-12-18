@@ -108,7 +108,7 @@ class ChatBot:
             # Sauvegarder la question et la réponse dans l'historique
             self.conversations[conversation_id] = conversation_history + [
                 {"role": "user", "content": question},
-                {"role": "assistant", "content": response.choices[0].message.content}
+                {"role": "assistant", "content": contenu}
             ]
             
             return contenu
