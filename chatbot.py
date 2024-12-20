@@ -147,21 +147,27 @@ class ChatBot:
             except Exception as e:
                 return "Erreur lors de la génération de la préconisation"
                 
-    def get_next_question(self, lead_info, qcm_progress):
+    def get_next_question(self, lead_data, qcm_progress):
         """Détermine la prochaine question dans la séquence"""
-        # Vérifier d'abord nom et email
-        if not lead_info.get('name'):
+        # ÉTAPE 1 : Nom
+        if not lead_data.get('name'):
             return np.random.choice(self.QUALIFICATION_QUESTIONS['name'])
-        if not lead_info.get('contact'):
+        
+        # ÉTAPE 2 : Contact (email)
+        if not lead_data.get('contact'):
             return np.random.choice(self.QUALIFICATION_QUESTIONS['contact'])
         
-        # Ensuite passer aux questions QCM dans l'ordre
+        # ÉTAPE 3 : Questions QCM - Une par une
         if not qcm_progress['objectifs']:
             return self.QCM_QUESTIONS['objectifs']
+        
         if not qcm_progress['patrimoine']:
             return self.QCM_QUESTIONS['patrimoine']
+        
         if not qcm_progress['revenus']:
             return self.QCM_QUESTIONS['revenus']
+        
+        # Étape finale : Téléphone
         if not qcm_progress['telephone']:
             return self.QCM_QUESTIONS['telephone']
         
@@ -294,44 +300,34 @@ class ChatBot:
             # Obtenir la prochaine question
             next_question = self.get_next_question(lead_data, qcm_progress)
             
-            context = f"""
-            Informations client actuelles :
-            {json.dumps(lead_data, indent=2)}
+            # Générer une réponse adaptée à l'étape actuelle
+            if not lead_data.get('name'):
+                response = f"Bonjour ! {next_question}"
+            elif not lead_data.get('contact'):
+                response = f"Merci {lead_data.get('name', 'cher client')}. {next_question}"
+            elif not qcm_progress['objectifs']:
+                response = f"Pour mieux vous accompagner, {next_question['question']}"
+            elif not qcm_progress['patrimoine']:
+                response = f"Bien compris. {next_question['question']}"
+            elif not qcm_progress['revenus']:
+                response = f"Continuons. {next_question['question']}"
+            elif not qcm_progress['telephone']:
+                response = f"Dernière étape. {next_question['question']}"
+            else:
+                response = "Merci pour toutes ces informations !"
             
-            Progression QCM :
-            {json.dumps(qcm_progress, indent=2)}
-            
-            Prochaine question :
-            {json.dumps(next_question, indent=2) if next_question else "Aucune - Tout est collecté"}
-            
-            Historique récent :
-            {json.dumps(history[-3:], indent=2) if history else "Aucun"}
-            """
-            
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": self.SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Question: {question}\nContexte: {context}"}
-                ],
-                temperature=0.7
-            )
-    
-            reponse = response.choices[0].message.content
-            
-            # Si toutes les infos sont collectées, générer une préconisation
-            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
-                preconisation = self.generer_preconisation(lead_data)
-                reponse += f"\n\n{preconisation}"
-                
-                # Mettre à jour le lead avec la préconisation
-                lead_data['preconisation'] = preconisation
-                self.update_lead_data(conversation_id, lead_data)
-            
-            return reponse
+            return {
+                'reponse': response,
+                'conversation_id': conversation_id,
+                'type': 'qcm' if next_question and 'options' in next_question else 'text',
+                'next_question': next_question
+            }
     
         except Exception as e:
-            return f"Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?"
+            return {
+                'reponse': f"Désolé, une erreur s'est produite : {str(e)}",
+                'conversation_id': conversation_id
+            }
 
     def valider_reponse_qcm(self, question_type, reponse):
         """Vérifie si la réponse correspond aux options du QCM"""
