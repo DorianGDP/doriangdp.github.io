@@ -14,17 +14,25 @@ chatbot = ChatBot(api_key)
 @app.route('/api/chat', methods=['POST'])
 def chat():
     data = request.json
-    question = data.get('question')
+    question = data.get('question')  # Gardez 'question'
     conversation_id = data.get('conversation_id')
+    is_qcm_response = data.get('is_qcm_response', False)
+    qcm_type = data.get('qcm_type')
     
     if not question:
         return jsonify({'error': 'Question manquante'}), 400
         
     try:
+        # Vous pouvez passer les informations supplémentaires si nécessaire
         reponse = chatbot.repondre_question(question, conversation_id)
+        
+        # Ajoutez des informations supplémentaires si nécessaire
+        reponse['is_qcm_response'] = is_qcm_response
+        reponse['qcm_type'] = qcm_type
+        
         return jsonify(reponse)
     except Exception as e:
-        print(f"Erreur détaillée: {str(e)}")  # Pour le debugging
+        print(f"Erreur détaillée: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
