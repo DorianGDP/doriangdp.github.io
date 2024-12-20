@@ -168,77 +168,102 @@ class ChatBot:
         return None
 
     def update_lead_data(self, conversation_id, lead_data):
-        """Mise à jour des données du lead dans Supabase"""
         try:
             existing_lead = self.supabase.table('conversations')\
                 .select('*')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-
-            if not existing_lead.data:
-                self.supabase.table('conversations').insert({
-                    'conversation_id': conversation_id,
-                    **lead_data
-                }).execute()
-            else:
+    
+            data_to_update = {
+                'lead_data': lead_data.get('lead_data', {}),
+                'qcm_responses': lead_data.get('qcm_responses', {}),
+                'status': lead_data.get('status', 'new'),
+                'needs_followup': lead_data.get('needs_followup', False),
+                'wants_callback': lead_data.get('wants_callback', False)
+            }
+    
+            if existing_lead.data:
                 self.supabase.table('conversations')\
-                    .update(lead_data)\
+                    .update(data_to_update)\
                     .eq('conversation_id', conversation_id)\
                     .execute()
+            else:
+                self.supabase.table('conversations').insert({
+                    'conversation_id': conversation_id,
+                    **data_to_update
+                }).execute()
             return True
         except Exception as e:
             print(f"Erreur Supabase: {str(e)}")
             return False
             
     def track_lead_info(self, conversation_id, new_info, interaction=None):
-            data = self.supabase.table('conversations')\
-                .select('*')\
-                .eq('conversation_id', conversation_id)\
-                .execute()
+        data = self.supabase.table('conversations')\
+            .select('*')\
+            .eq('conversation_id', conversation_id)\
+            .execute()
     
-            if data.data:
-                record = data.data[0]
-                lead_data = record.get('lead_data', {})
-                history = record.get('conversation_history', [])
-                qcm_progress = record.get('qcm_progress', {})
-            else:
-                lead_data = {}
-                history = []
-                qcm_progress = {
-                    'objectifs': False,
-                    'patrimoine': False,
-                    'revenus': False,
-                    'telephone': False
-                }
-    
-            # Mettre à jour les informations et la progression
-            if new_info:
-                lead_data.update(new_info)
-                for key in new_info:
-                    if key in qcm_progress:
-                        qcm_progress[key] = True
-    
-            # Vérifier si toutes les infos sont collectées
-            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
-                lead_data['preconisation'] = self.generer_preconisation(lead_data)
-    
-            # Sauvegarder les mises à jour
-            data_to_save = {
-                'lead_data': lead_data,
-                'conversation_history': history if interaction else history + [interaction],
-                'qcm_progress': qcm_progress
+        if data.data:
+            record = data.data[0]
+            lead_data = record.get('lead_data', {})
+            history = record.get('conversation_history', [])
+            qcm_progress = record.get('qcm_progress', {})
+            qcm_responses = record.get('qcm_responses', {})
+            status = record.get('status', 'new')
+        else:
+            lead_data = {}
+            history = []
+            qcm_progress = {
+                'objectifs': False,
+                'patrimoine': False,
+                'revenus': False,
+                'telephone': False
             }
+            qcm_responses = {
+                'objectifs': None,
+                'patrimoine': None,
+                'revenus': None,
+                'telephone': None
+            }
+            status = 'new'
     
-            if data.data:
-                self.supabase.table('conversations').update(data_to_save)\
-                    .eq('conversation_id', conversation_id).execute()
-            else:
-                self.supabase.table('conversations').insert({
-                    'conversation_id': conversation_id,
-                    **data_to_save
-                }).execute()
+        # Mettre à jour le statut en fonction de la progression
+        if not lead_data.get('name') or not lead_data.get('contact'):
+            status = 'new'
+        elif not all(qcm_progress.values()):
+            status = 'in_progress'
+        else:
+            status = 'qualified'
     
-            return lead_data, history, qcm_progress
+        # Mettre à jour les informations
+        if new_info:
+            lead_data.update(new_info)
+            for key in new_info:
+                if key in qcm_progress:
+                    qcm_progress[key] = True
+                    qcm_responses[key] = new_info[key]
+    
+        data_to_save = {
+            'lead_data': lead_data,
+            'conversation_history': history if interaction else history + [interaction],
+            'qcm_progress': qcm_progress,
+            'qcm_responses': qcm_responses,
+            'status': status,
+            'needs_followup': status == 'qualified',
+            'wants_callback': bool(qcm_responses.get('telephone'))
+        }
+    
+        # Sauvegarder dans Supabase
+        if data.data:
+            self.supabase.table('conversations').update(data_to_save)\
+                .eq('conversation_id', conversation_id).execute()
+        else:
+            self.supabase.table('conversations').insert({
+                'conversation_id': conversation_id,
+                **data_to_save
+            }).execute()
+
+    return lead_data, history, qcm_progress
 
     def extract_lead_info(self, text):
         """Extraire les informations du texte avec GPT"""
@@ -327,7 +352,7 @@ class ChatBot:
             
         if question_type == 'telephone':
             # Validation basique pour numéro de téléphone
-            return bool(reponse and len(reponse) >= 10)
+            return bool(reponse and len(reponse.replace(' ', '').replace('.', '')) >= 10)
             
         return reponse in self.QCM_QUESTIONS[question_type]['options']
     
