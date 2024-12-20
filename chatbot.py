@@ -35,22 +35,18 @@ class ChatBot:
     
     RÈGLES DE CONVERSATION :
     1. TOUJOURS remercier quand une information est partagée
-    2. TOUJOURS rebondir sur l'information donnée avant de poser une nouvelle question 
+    2. TOUJOURS rebondir sur l'information donnée avant de poser une nouvelle question
     3. NE JAMAIS poser plus d'une question à la fois
     4. NE JAMAIS redemander une information déjà donnée
     5. Rester naturelle et empathique
     
     INFORMATIONS À COLLECTER (dans l'ordre optimal) :
-    1. Nom, Prénom, Email → Pour personnaliser l'échange et envoyer un récapitulatif 
-    2. Objectifs patrimoniaux → Via QCM pour faciliter les réponses 
-    3. Patrimoine financier → Par tranches prédéfinies
-    4. Revenu annuel → Par tranches de 30K€ à 250K€+
-    5. Numéro de téléphone (optionnel) → Si rappel souhaité 
+    1. Nom → Pour personnaliser l'échange
+    2. Profession → Pour les solutions fiscales
+    3. Patrimoine → Pour les recommandations
+    4. Contact → Pour le suivi
     
-    Une fois toutes les informations collectées :
-    - Donner une préconisation personnalisée
-    - Fournir des liens pertinents du site
-    - Proposer un rappel si souhaité"""
+    Une fois toutes les informations collectées, proposer un rendez-vous expert gratuit."""
 
     def __init__(self, api_key):
         """Initialise le chatbot avec la base de données d'embeddings"""
@@ -203,74 +199,22 @@ class ChatBot:
             {json.dumps(history[-3:], indent=2) if history else "Aucun"}
             """
             
-            # Générer les questions du QCM si non présentes
-            if not lead_data.get('objectifs'):
-                qcm_objectifs = """Quels objectifs souhaitez-vous atteindre ?
-                1. Obtenir des revenus complémentaires
-                2. Investir en immobilier  
-                3. Développer mon patrimoine
-                4. Réduire mes impôts
-                5. Préparer ma retraite
-                6. Transmettre mon patrimoine
-                7. Placer ma trésorerie excédentaire 
-                8. Autre
-                
-                Veuillez choisir le ou les numéros correspondants (ex: 1,3)"""
-                
-                reponse = f"Merci pour ces informations ! {qcm_objectifs}"
-
-            elif not lead_data.get('patrimoine'):  
-                qcm_patrimoine = """Quelle est votre patrimoine financier ?
-                1. Moins de 20 000 €
-                2. Entre 20 000 € et 50 000 €
-                3. Entre 50 000 € et 100 000 € 
-                4. Entre 100 000 € et 250 000 €
-                5. Entre 250 000 € et 500 000 €
-                6. Entre 500 000 € et 1 000 000 €
-                7. Entre 1 000 000 € et 2 500 000 €
-                8. Plus de 2 500 000 €
-                
-                Veuillez saisir le numéro correspondant"""
-                
-                reponse = f"Parfait, merci. {qcm_patrimoine}"
-            
-            elif not lead_data.get('revenus'):
-                qcm_revenus = """Quel est votre revenu annuel ?
-                1. Moins de 30 000 €
-                2. Entre 30 000 € et 60 000 €
-                3. Entre 60 000 € et 90 000 €
-                4. Entre 90 000 € et 120 000 €
-                5. Entre 120 000 € et 150 000 €  
-                6. Entre 150 000 € et 180 000 €
-                7. Entre 180 000 € et 210 000 €
-                8. Entre 210 000 € et 250 000 €
-                9. Plus de 250 000 €
-                
-                Veuillez saisir le numéro correspondant"""
-                
-                reponse = f"Excellent. {qcm_revenus}"
-                
-            else:
-                # Toutes les infos collectées, générer la préconisation  
-                response = self.client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": self.SYSTEM_PROMPT},
-                        {"role": "user", "content": f"Question: {question}\nContexte: {context}"}
-                    ],
-                    temperature=0.7
-                )
-        
-                reponse = response.choices[0].message.content
-                
-                # Ajouter les liens et proposer un rappel
-                if not lead_data.get('telephone'):
-                    reponse += "\n\nVoici quelques ressources de notre site qui pourraient vous intéresser :\n- Lien 1\n- Lien 2\n- Lien 3\n\nSi vous souhaitez que l'un de nos experts vous rappelle pour approfondir, n'hésitez pas à me communiquer votre numéro de téléphone."
+            # Générer la réponse
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Question: {question}\nContexte: {context}"}
+                ],
+                temperature=0.7
+            )
+    
+            reponse = response.choices[0].message.content
             
             # Sauvegarder l'interaction
             self.track_lead_info(conversation_id, None, {
                 'question': question,
-                'reponse': reponse
+                'response': reponse
             })
     
             return reponse
