@@ -147,65 +147,50 @@ class ChatBot:
             except Exception as e:
                 return "Erreur lors de la génération de la préconisation"
                 
-    def get_next_question(self, lead_data, qcm_progress):
+    def get_next_question(self, lead_info, qcm_progress):
         """Détermine la prochaine question dans la séquence"""
-        # ÉTAPE 1 : Nom
-        if not lead_data.get('name'):
+        # Vérifier d'abord nom et email
+        if not lead_info.get('name'):
             return np.random.choice(self.QUALIFICATION_QUESTIONS['name'])
-        
-        # ÉTAPE 2 : Contact (email)
-        if not lead_data.get('contact'):
+        if not lead_info.get('contact'):
             return np.random.choice(self.QUALIFICATION_QUESTIONS['contact'])
         
-        # ÉTAPE 3 : Questions QCM - Une par une
+        # Ensuite passer aux questions QCM dans l'ordre
         if not qcm_progress['objectifs']:
             return self.QCM_QUESTIONS['objectifs']
-        
         if not qcm_progress['patrimoine']:
             return self.QCM_QUESTIONS['patrimoine']
-        
         if not qcm_progress['revenus']:
             return self.QCM_QUESTIONS['revenus']
-        
-        # Étape finale : Téléphone
         if not qcm_progress['telephone']:
             return self.QCM_QUESTIONS['telephone']
         
         return None
 
     def update_lead_data(self, conversation_id, lead_data):
+        """Mise à jour des données du lead dans Supabase"""
         try:
             existing_lead = self.supabase.table('conversations')\
                 .select('*')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-    
-            data_to_update = {
-                'lead_data': lead_data.get('lead_data', {}),
-                'qcm_responses': lead_data.get('qcm_responses', {}),
-                'status': lead_data.get('status', 'new'),
-                'needs_followup': lead_data.get('needs_followup', False),
-                'wants_callback': lead_data.get('wants_callback', False)
-            }
-    
-            if existing_lead.data:
-                self.supabase.table('conversations')\
-                    .update(data_to_update)\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
-            else:
+
+            if not existing_lead.data:
                 self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
-                    **data_to_update
+                    **lead_data
                 }).execute()
+            else:
+                self.supabase.table('conversations')\
+                    .update(lead_data)\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
             return True
         except Exception as e:
             print(f"Erreur Supabase: {str(e)}")
             return False
             
     def track_lead_info(self, conversation_id, new_info, interaction=None):
-        """Analyse et stocke les informations du lead"""
-        try:
             data = self.supabase.table('conversations')\
                 .select('*')\
                 .eq('conversation_id', conversation_id)\
@@ -254,10 +239,6 @@ class ChatBot:
                 }).execute()
     
             return lead_data, history, qcm_progress
-            
-        except Exception as e:
-            print(f"Erreur lors du tracking des informations: {str(e)}")
-            return {}, [], {}
 
     def extract_lead_info(self, text):
         """Extraire les informations du texte avec GPT"""
@@ -300,34 +281,44 @@ class ChatBot:
             # Obtenir la prochaine question
             next_question = self.get_next_question(lead_data, qcm_progress)
             
-            # Générer une réponse adaptée à l'étape actuelle
-            if not lead_data.get('name'):
-                response = f"Bonjour ! {next_question}"
-            elif not lead_data.get('contact'):
-                response = f"Merci {lead_data.get('name', 'cher client')}. {next_question}"
-            elif not qcm_progress['objectifs']:
-                response = f"Pour mieux vous accompagner, {next_question['question']}"
-            elif not qcm_progress['patrimoine']:
-                response = f"Bien compris. {next_question['question']}"
-            elif not qcm_progress['revenus']:
-                response = f"Continuons. {next_question['question']}"
-            elif not qcm_progress['telephone']:
-                response = f"Dernière étape. {next_question['question']}"
-            else:
-                response = "Merci pour toutes ces informations !"
+            context = f"""
+            Informations client actuelles :
+            {json.dumps(lead_data, indent=2)}
             
-            return {
-                'reponse': response,
-                'conversation_id': conversation_id,
-                'type': 'qcm' if next_question and 'options' in next_question else 'text',
-                'next_question': next_question
-            }
+            Progression QCM :
+            {json.dumps(qcm_progress, indent=2)}
+            
+            Prochaine question :
+            {json.dumps(next_question, indent=2) if next_question else "Aucune - Tout est collecté"}
+            
+            Historique récent :
+            {json.dumps(history[-3:], indent=2) if history else "Aucun"}
+            """
+            
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Question: {question}\nContexte: {context}"}
+                ],
+                temperature=0.7
+            )
+    
+            reponse = response.choices[0].message.content
+            
+            # Si toutes les infos sont collectées, générer une préconisation
+            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
+                preconisation = self.generer_preconisation(lead_data)
+                reponse += f"\n\n{preconisation}"
+                
+                # Mettre à jour le lead avec la préconisation
+                lead_data['preconisation'] = preconisation
+                self.update_lead_data(conversation_id, lead_data)
+            
+            return reponse
     
         except Exception as e:
-            return {
-                'reponse': f"Désolé, une erreur s'est produite : {str(e)}",
-                'conversation_id': conversation_id
-            }
+            return f"Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?"
 
     def valider_reponse_qcm(self, question_type, reponse):
         """Vérifie si la réponse correspond aux options du QCM"""
@@ -336,7 +327,7 @@ class ChatBot:
             
         if question_type == 'telephone':
             # Validation basique pour numéro de téléphone
-            return bool(reponse and len(reponse.replace(' ', '').replace('.', '')) >= 10)
+            return bool(reponse and len(reponse) >= 10)
             
         return reponse in self.QCM_QUESTIONS[question_type]['options']
     
