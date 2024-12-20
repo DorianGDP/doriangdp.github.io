@@ -358,7 +358,10 @@
         // Fonction d'envoi de message
         async function sendMessage(isQCMResponse = false, qcmData = null) {
             const question = isQCMResponse ? qcmData.response : userInput.value.trim();
-            if (!question) return;
+            if (!question) {
+                console.error('Aucune question à envoyer');
+                return;
+            }
         
             disableSendButton();
             
@@ -369,6 +372,14 @@
             
             const loadingId = appendMessage('bot', "En train de réfléchir...");
         
+            // Log du payload
+            console.log('Payload envoyé:', {
+                question: question,
+                conversation_id: conversationId || '',
+                is_qcm_response: isQCMResponse,
+                qcm_type: isQCMResponse ? qcmData.type : null
+            });
+        
             try {
                 const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
                     method: 'POST',
@@ -377,13 +388,15 @@
                         'Accept': 'application/json'
                     },
                     body: JSON.stringify({ 
-                        // CHANGEZ DE 'message' À 'question'
                         question: question,  
                         conversation_id: conversationId || '',
                         is_qcm_response: isQCMResponse,
                         qcm_type: isQCMResponse ? qcmData.type : null
                     })
                 });
+        
+                // Log de la réponse brute
+                console.log('Réponse brute:', response);
         
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -392,6 +405,8 @@
                 }
         
                 const data = await response.json();
+                console.log('Données reçues:', data);
+        
                 conversationId = data.conversation_id;
                 
                 if (data.type === 'qcm') {
