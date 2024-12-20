@@ -355,10 +355,112 @@ class ChatBot:
         if conversation_id is None:
             conversation_id = str(time.time())
         
-        # Plus besoin de docs_pertinents ici
-        reponse = self.generer_reponse(question, conversation_id)
+        try:
+            reponse = self.generer_reponse(question, conversation_id)
+            
+            # Extraction des infos pour déterminer l'étape suivante
+            new_info = self.extract_lead_info(question)
+            lead_data, history, qcm_progress = self.track_lead_info(conversation_id, new_info)
+            
+            # Si c'est le premier message, demander le nom
+            if not history:
+                return {
+                    'reponse': "Bonjour ! 👋 Je suis votre assistant personnel en gestion de patrimoine. Pour mieux vous accompagner, puis-je connaître votre nom ?",
+                    'conversation_id': conversation_id,
+                    'type': 'text'
+                }
+    
+            # Séquence de qualification
+            if not lead_data.get('name'):
+                return {
+                    'reponse': np.random.choice(self.QUALIFICATION_QUESTIONS['name']),
+                    'conversation_id': conversation_id,
+                    'type': 'text'
+                }
+            
+            if not lead_data.get('contact'):
+                return {
+                    'reponse': np.random.choice(self.QUALIFICATION_QUESTIONS['contact']),
+                    'conversation_id': conversation_id,
+                    'type': 'text'
+                }
+            
+            # Séquence QCM
+            if not qcm_progress.get('objectifs'):
+                return {
+                    'type': 'qcm',
+                    'question': self.QCM_QUESTIONS['objectifs']['question'],
+                    'options': self.QCM_QUESTIONS['objectifs']['options'],
+                    'conversation_id': conversation_id
+                }
+            
+            if not qcm_progress.get('patrimoine'):
+                return {
+                    'type': 'qcm',
+                    'question': self.QCM_QUESTIONS['patrimoine']['question'],
+                    'options': self.QCM_QUESTIONS['patrimoine']['options'],
+                    'conversation_id': conversation_id
+                }
+            
+            if not qcm_progress.get('revenus'):
+                return {
+                    'type': 'qcm',
+                    'question': self.QCM_QUESTIONS['revenus']['question'],
+                    'options': self.QCM_QUESTIONS['revenus']['options'],
+                    'conversation_id': conversation_id
+                }
+            
+            if not qcm_progress.get('telephone'):
+                # Question pour le numéro de téléphone
+                return {
+                    'type': 'telephone',
+                    'question': self.QCM_QUESTIONS['telephone']['question'],
+                    'conversation_id': conversation_id
+                }
+            
+            # Si toutes les infos sont collectées, générer une préconisation
+            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
+                preconisation = self.generer_preconisation(lead_data)
+                lead_data['preconisation'] = preconisation
+                self.update_lead_data(conversation_id, lead_data)
+                
+                return {
+                    'type': 'preconisation',
+                    'reponse': preconisation,
+                    'conversation_id': conversation_id
+                }
+            
+            # Si on arrive ici, c'est une conversation normale
+            return {
+                'reponse': reponse,
+                'conversation_id': conversation_id,
+                'type': 'text'
+            }
+            
+        except Exception as e:
+            print(f"Erreur dans repondre_question: {str(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            return {
+                'reponse': "Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?",
+                'conversation_id': conversation_id,
+                'type': 'text'
+            }
+    
+    def valider_et_nettoyer_telephone(self, numero):
+        """Valide et nettoie un numéro de téléphone"""
+        # Supprimer tous les caractères non numériques
+        numero_clean = ''.join(filter(str.isdigit, numero))
         
-        return {
-            'reponse': reponse,
-            'conversation_id': conversation_id
-        }
+        # Vérifier la longueur (10 chiffres pour la France)
+        if len(numero_clean) == 10:
+            # Format: 06 12 34 56 78
+            return ' '.join([numero_clean[i:i+2] for i in range(0, 10, 2)])
+        
+        # Format international
+        if len(numero_clean) > 10 and numero_clean.startswith('33'):
+            numero_clean = '0' + numero_clean[2:]
+            if len(numero_clean) == 10:
+                return ' '.join([numero_clean[i:i+2] for i in range(0, 10, 2)])
+        
+        return None
