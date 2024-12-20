@@ -257,7 +257,7 @@ class ChatBot:
         """Extraire les informations du texte avec GPT"""
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4o",  # Corrigé de gpt-4o
+                model="gpt-4o",  # Correction du modèle
                 messages=[{
                     "role": "system",
                     "content": """Tu es un expert en extraction d'informations.
@@ -276,11 +276,11 @@ class ChatBot:
                     "role": "user",
                     "content": text
                 }],
-                temperature=0.2,  # Réduit pour plus de précision
-                max_tokens=200
+                temperature=0.2
             )
             return json.loads(response.choices[0].message.content)
-        except:
+        except Exception as e:
+            print(f"Erreur dans extract_lead_info: {str(e)}")
             return {}
 
     def generer_reponse(self, question, conversation_id):
@@ -308,8 +308,9 @@ class ChatBot:
             {json.dumps(history[-3:], indent=2) if history else "Aucun"}
             """
             
+            # Correction du modèle GPT
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o",  # ou "gpt-4" si vous avez l'accès
                 messages=[
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": f"Question: {question}\nContexte: {context}"}
@@ -319,19 +320,24 @@ class ChatBot:
     
             reponse = response.choices[0].message.content
             
-            # Si toutes les infos sont collectées, générer une préconisation
+            # Log de succès pour le debugging
+            print(f"Réponse générée avec succès: {reponse[:100]}...")
+            
             if all(qcm_progress.values()) and not lead_data.get('preconisation'):
                 preconisation = self.generer_preconisation(lead_data)
                 reponse += f"\n\n{preconisation}"
-                
-                # Mettre à jour le lead avec la préconisation
                 lead_data['preconisation'] = preconisation
                 self.update_lead_data(conversation_id, lead_data)
             
             return reponse
     
         except Exception as e:
-            return f"Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?"
+            # Log détaillé de l'erreur
+            print(f"Erreur dans generer_reponse: {str(e)}")
+            import traceback
+            print(f"Traceback complet: {traceback.format_exc()}")
+            return "Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?"
+
 
     def valider_reponse_qcm(self, question_type, reponse):
         """Vérifie si la réponse correspond aux options du QCM"""
