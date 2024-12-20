@@ -198,72 +198,60 @@ class ChatBot:
             return False
             
     def track_lead_info(self, conversation_id, new_info, interaction=None):
-        data = self.supabase.table('conversations')\
-            .select('*')\
-            .eq('conversation_id', conversation_id)\
-            .execute()
+        """Analyse et stocke les informations du lead"""
+        try:
+            data = self.supabase.table('conversations')\
+                .select('*')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
     
-        if data.data:
-            record = data.data[0]
-            lead_data = record.get('lead_data', {})
-            history = record.get('conversation_history', [])
-            qcm_progress = record.get('qcm_progress', {})
-            qcm_responses = record.get('qcm_responses', {})
-            status = record.get('status', 'new')
-        else:
-            lead_data = {}
-            history = []
-            qcm_progress = {
-                'objectifs': False,
-                'patrimoine': False,
-                'revenus': False,
-                'telephone': False
+            if data.data:
+                record = data.data[0]
+                lead_data = record.get('lead_data', {})
+                history = record.get('conversation_history', [])
+                qcm_progress = record.get('qcm_progress', {})
+            else:
+                lead_data = {}
+                history = []
+                qcm_progress = {
+                    'objectifs': False,
+                    'patrimoine': False,
+                    'revenus': False,
+                    'telephone': False
+                }
+    
+            # Mettre à jour les informations et la progression
+            if new_info:
+                lead_data.update(new_info)
+                for key in new_info:
+                    if key in qcm_progress:
+                        qcm_progress[key] = True
+    
+            # Vérifier si toutes les infos sont collectées
+            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
+                lead_data['preconisation'] = self.generer_preconisation(lead_data)
+    
+            # Sauvegarder les mises à jour
+            data_to_save = {
+                'lead_data': lead_data,
+                'conversation_history': history if interaction else history + [interaction],
+                'qcm_progress': qcm_progress
             }
-            qcm_responses = {
-                'objectifs': None,
-                'patrimoine': None,
-                'revenus': None,
-                'telephone': None
-            }
-            status = 'new'
     
-        # Mettre à jour le statut en fonction de la progression
-        if not lead_data.get('name') or not lead_data.get('contact'):
-            status = 'new'
-        elif not all(qcm_progress.values()):
-            status = 'in_progress'
-        else:
-            status = 'qualified'
+            if data.data:
+                self.supabase.table('conversations').update(data_to_save)\
+                    .eq('conversation_id', conversation_id).execute()
+            else:
+                self.supabase.table('conversations').insert({
+                    'conversation_id': conversation_id,
+                    **data_to_save
+                }).execute()
     
-        # Mettre à jour les informations
-        if new_info:
-            lead_data.update(new_info)
-            for key in new_info:
-                if key in qcm_progress:
-                    qcm_progress[key] = True
-                    qcm_responses[key] = new_info[key]
-    
-        data_to_save = {
-            'lead_data': lead_data,
-            'conversation_history': history if interaction else history + [interaction],
-            'qcm_progress': qcm_progress,
-            'qcm_responses': qcm_responses,
-            'status': status,
-            'needs_followup': status == 'qualified',
-            'wants_callback': bool(qcm_responses.get('telephone'))
-        }
-    
-        # Sauvegarder dans Supabase
-        if data.data:
-            self.supabase.table('conversations').update(data_to_save)\
-                .eq('conversation_id', conversation_id).execute()
-        else:
-            self.supabase.table('conversations').insert({
-                'conversation_id': conversation_id,
-                **data_to_save
-            }).execute()
-
-    return lead_data, history, qcm_progress
+            return lead_data, history, qcm_progress
+            
+        except Exception as e:
+            print(f"Erreur lors du tracking des informations: {str(e)}")
+            return {}, [], {}
 
     def extract_lead_info(self, text):
         """Extraire les informations du texte avec GPT"""
