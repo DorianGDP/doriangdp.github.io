@@ -26,28 +26,75 @@ class ChatBot:
             "Afin de vous conseiller les meilleurs investissements, quel est approximativement votre niveau de patrimoine ?"
         ]
     }
+    QCM_QUESTIONS = {
+        'objectifs': {
+            'question': "Quels objectifs souhaitez-vous atteindre ?",
+            'options': [
+                "Obtenir des revenus complémentaires",
+                "Investir en immobilier",
+                "Développer mon patrimoine",
+                "Réduire mes impôts",
+                "Préparer ma retraite",
+                "Transmettre mon patrimoine",
+                "Placer ma trésorerie excédentaire",
+                "Autres"
+            ]
+        },
+        'patrimoine': {
+            'question': "Quel est votre patrimoine financier ?",
+            'options': [
+                "Moins de 20 000€",
+                "Entre 20 000€ et 50 000€",
+                "Entre 50 000€ et 100 000€",
+                "Entre 100 000€ et 250 000€",
+                "Entre 250 000€ et 500 000€",
+                "Entre 500 000€ et 1 000 000€",
+                "Entre 1 000 000€ et 2 500 000€",
+                "Plus de 2 500 000€"
+            ]
+        },
+        'revenus': {
+            'question': "Quel est votre revenu annuel ?",
+            'options': [
+                "Moins de 30 000€",
+                "Entre 30 000€ et 60 000€",
+                "Entre 60 000€ et 90 000€",
+                "Entre 90 000€ et 120 000€",
+                "Entre 120 000€ et 150 000€",
+                "Entre 150 000€ et 200 000€",
+                "Entre 200 000€ et 250 000€",
+                "Plus de 250 000€"
+            ]
+        },
+        'telephone': {
+            'question': "Souhaitez-vous être rappelé rapidement ? Si oui, quel est votre numéro de téléphone ?"
+        }
+    }
     SYSTEM_PROMPT = """Tu es Emma, l'assistante virtuelle de gestiondepatrimoine.com.
     
-    OBJECTIF PRINCIPAL : 
-    Collecter rapidement le nom et l'email du visiteur, quelle que soit sa question initiale.
+        SÉQUENCE DE CONVERSATION :
+        1. Obtenir nom et email (PRIORITAIRE)
+        2. Présenter le questionnaire QCM en expliquant son intérêt
+        3. Guider à travers les 3 questions une par une
+        4. Proposer le numéro de téléphone pour un rappel rapide
     
-    STRATÉGIE DE RÉPONSE :
-    1. TOUJOURS apporter une micro-réponse à la question du visiteur (1-2 phrases max)
-    2. PUIS enchaîner naturellement sur la collecte du nom ou email
+        RÈGLES DE PRÉSENTATION DES QCM :
+        1. Ne présenter qu'UNE question à la fois
+        2. Attendre la réponse avant de passer à la suivante
+        3. Confirmer chaque réponse reçue
+        4. Si réponse hors options, guider gentiment vers les choix disponibles
     
-    SÉQUENCE OBLIGATOIRE :
-    1. Si pas de nom → Demander le nom en priorité absolue
-    2. Si nom mais pas d'email → Proposer l'envoi d'une analyse gratuite par email
-    3. Une fois nom + email obtenus → Passer aux autres informations
+        APRÈS COLLECTE COMPLÈTE :
+        1. Remercier pour les informations
+        2. Fournir une préconisation personnalisée basée sur les réponses
+        3. Inclure des liens pertinents vers le site
+        4. Proposer un contact téléphonique rapide
     
-    FORMULATION TYPE :
-    - Si première interaction : "Votre question sur [sujet] est intéressante. Pour pouvoir vous répondre de manière personnalisée, puis-je d'abord connaître votre nom ?"
-    - Après avoir le nom : "Merci [nom]. Je peux vous envoyer une première analyse gratuite de votre situation. Sur quelle adresse email puis-je vous l'envoyer ?"
-    
-    IMPORTANT :
-    - NE JAMAIS donner de réponse détaillée avant d'avoir nom + email
-    - TOUJOURS justifier la demande d'email par l'envoi d'une analyse gratuite
-    - Insister sur : gratuit, sans engagement, personnalisé"""
+        FORMAT DE PRÉCONISATION :
+        1. Résumé de la situation
+        2. Recommandations principales
+        3. Liens vers contenus pertinents
+        4. Proposition de contact personnalisé"""
 
     def __init__(self, api_key):
         """Initialise le chatbot avec la base de données d'embeddings"""
@@ -70,34 +117,55 @@ class ChatBot:
             
         # Initialiser l'historique des conversations
         self.conversations = {}
-
-    def get_next_question(self, lead_info):
-        """Détermine la prochaine question selon la nouvelle priorité"""
+        
+    def generer_preconisation(self, lead_data):
+            """Génère une préconisation personnalisée basée sur les informations collectées"""
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{
+                        "role": "system",
+                        "content": """Génère une préconisation patrimoniale personnalisée.
+                        Format requis:
+                        1. Synthèse de la situation
+                        2. 2-3 recommandations principales
+                        3. Liens vers des articles pertinents du site
+                        4. Proposition de suivi
+    
+                        IMPORTANT: 
+                        - Rester concret et actionnable
+                        - Inclure des liens réels du site
+                        - Maintenir un ton professionnel mais accessible"""
+                    }, {
+                        "role": "user",
+                        "content": f"Informations client:\n{json.dumps(lead_data, indent=2)}"
+                    }],
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                return "Erreur lors de la génération de la préconisation"
+                
+    def get_next_question(self, lead_info, qcm_progress):
+        """Détermine la prochaine question dans la séquence"""
         # Vérifier d'abord nom et email
         if not lead_info.get('name'):
             return np.random.choice(self.QUALIFICATION_QUESTIONS['name'])
         if not lead_info.get('contact'):
             return np.random.choice(self.QUALIFICATION_QUESTIONS['contact'])
-            
-        # Ensuite les autres informations
-        for field in ['profession', 'patrimoine']:
-            if not lead_info.get(field):
-                return np.random.choice(self.QUALIFICATION_QUESTIONS[field])
+        
+        # Ensuite passer aux questions QCM dans l'ordre
+        if not qcm_progress['objectifs']:
+            return self.QCM_QUESTIONS['objectifs']
+        if not qcm_progress['patrimoine']:
+            return self.QCM_QUESTIONS['patrimoine']
+        if not qcm_progress['revenus']:
+            return self.QCM_QUESTIONS['revenus']
+        if not qcm_progress['telephone']:
+            return self.QCM_QUESTIONS['telephone']
+        
         return None
-
-    def get_query_embedding(self, question):
-        """Crée l'embedding pour la question"""
-        response = self.client.embeddings.create(
-            model="text-embedding-ada-002",
-            input=question
-        )
-        return np.array(response.data[0].embedding, dtype='float32').reshape(1, -1)
-
-    def recherche_documents_pertinents(self, question, k=3):
-        """Recherche les documents les plus pertinents"""
-        question_embedding = self.get_query_embedding(question)
-        D, I = self.index.search(question_embedding, k)
-        return [self.metadata[idx] for idx in I[0]]
 
     def update_lead_data(self, conversation_id, lead_data):
         """Mise à jour des données du lead dans Supabase"""
@@ -123,42 +191,54 @@ class ChatBot:
             return False
             
     def track_lead_info(self, conversation_id, new_info, interaction=None):
-        """Gestion simplifiée des informations"""
-        data = self.supabase.table('conversations')\
-            .select('*')\
-            .eq('conversation_id', conversation_id)\
-            .execute()
+            data = self.supabase.table('conversations')\
+                .select('*')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
     
-        if data.data:
-            record = data.data[0]
-            lead_data = record.get('lead_data', {})
-            history = record.get('conversation_history', [])
-        else:
-            lead_data = {}
-            history = []
+            if data.data:
+                record = data.data[0]
+                lead_data = record.get('lead_data', {})
+                history = record.get('conversation_history', [])
+                qcm_progress = record.get('qcm_progress', {})
+            else:
+                lead_data = {}
+                history = []
+                qcm_progress = {
+                    'objectifs': False,
+                    'patrimoine': False,
+                    'revenus': False,
+                    'telephone': False
+                }
     
-        # Mettre à jour les infos
-        if new_info:
-            lead_data.update(new_info)
+            # Mettre à jour les informations et la progression
+            if new_info:
+                lead_data.update(new_info)
+                for key in new_info:
+                    if key in qcm_progress:
+                        qcm_progress[key] = True
     
-        # Ajouter l'interaction à l'historique
-        if interaction:
-            history.append(interaction)
+            # Vérifier si toutes les infos sont collectées
+            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
+                lead_data['preconisation'] = self.generer_preconisation(lead_data)
     
-        # Sauvegarder
-        if data.data:
-            self.supabase.table('conversations').update({
+            # Sauvegarder les mises à jour
+            data_to_save = {
                 'lead_data': lead_data,
-                'conversation_history': history
-            }).eq('conversation_id', conversation_id).execute()
-        else:
-            self.supabase.table('conversations').insert({
-                'conversation_id': conversation_id,
-                'lead_data': lead_data,
-                'conversation_history': history
-            }).execute()
+                'conversation_history': history if interaction else history + [interaction],
+                'qcm_progress': qcm_progress
+            }
     
-        return lead_data, history
+            if data.data:
+                self.supabase.table('conversations').update(data_to_save)\
+                    .eq('conversation_id', conversation_id).execute()
+            else:
+                self.supabase.table('conversations').insert({
+                    'conversation_id': conversation_id,
+                    **data_to_save
+                }).execute()
+    
+            return lead_data, history, qcm_progress
 
     def extract_lead_info(self, text):
         """Extraire les informations du texte avec GPT"""
@@ -195,19 +275,26 @@ class ChatBot:
             # Extraire les infos de la question actuelle
             new_info = self.extract_lead_info(question)
             
-            # Récupérer l'état actuel de la conversation
-            lead_data, history = self.track_lead_info(conversation_id, new_info)
+            # Récupérer l'état actuel avec le progrès QCM
+            lead_data, history, qcm_progress = self.track_lead_info(conversation_id, new_info)
             
-            # Préparer le contexte
+            # Obtenir la prochaine question
+            next_question = self.get_next_question(lead_data, qcm_progress)
+            
             context = f"""
             Informations client actuelles :
             {json.dumps(lead_data, indent=2)}
-    
+            
+            Progression QCM :
+            {json.dumps(qcm_progress, indent=2)}
+            
+            Prochaine question :
+            {json.dumps(next_question, indent=2) if next_question else "Aucune - Tout est collecté"}
+            
             Historique récent :
             {json.dumps(history[-3:], indent=2) if history else "Aucun"}
             """
             
-            # Générer la réponse
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -219,17 +306,31 @@ class ChatBot:
     
             reponse = response.choices[0].message.content
             
-            # Sauvegarder l'interaction
-            self.track_lead_info(conversation_id, None, {
-                'question': question,
-                'response': reponse
-            })
-    
+            # Si toutes les infos sont collectées, générer une préconisation
+            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
+                preconisation = self.generer_preconisation(lead_data)
+                reponse += f"\n\n{preconisation}"
+                
+                # Mettre à jour le lead avec la préconisation
+                lead_data['preconisation'] = preconisation
+                self.update_lead_data(conversation_id, lead_data)
+            
             return reponse
     
         except Exception as e:
             return f"Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?"
 
+    def valider_reponse_qcm(self, question_type, reponse):
+        """Vérifie si la réponse correspond aux options du QCM"""
+        if question_type not in self.QCM_QUESTIONS:
+            return False
+            
+        if question_type == 'telephone':
+            # Validation basique pour numéro de téléphone
+            return bool(reponse and len(reponse) >= 10)
+            
+        return reponse in self.QCM_QUESTIONS[question_type]['options']
+    
     def repondre_question(self, question, conversation_id=None):
         """Point d'entrée principal du chatbot"""
         if conversation_id is None:
