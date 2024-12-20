@@ -41,7 +41,60 @@
             background: #06b6d4;
             border-radius: 3px;
         }
-    </style>
+        .qcm-option {
+            transition: all 0.3s ease;
+        }
+        
+        .qcm-option.selected {
+            background-color: #4c1d95;
+            color: white;
+        }
+        
+        .qcm-option:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .qcm-option {
+            @apply px-4 py-2 rounded-full text-sm font-medium transition-all duration-300;
+            @apply bg-purple-50 text-purple-800 hover:bg-purple-100;
+            @apply cursor-pointer border border-purple-200;
+        }
+        
+        .qcm-option.selected {
+            @apply bg-purple-800 text-white border-purple-800 font-bold;
+            transform: scale(1.05);
+        }
+        
+        .qcm-option.not-selected {
+            @apply opacity-50 cursor-not-allowed;
+        }
+        
+        .qcm-options-container {
+            @apply flex flex-wrap gap-2 mt-3 animate-fade-in;
+        }
+        
+        .animate-slide-in {
+            animation: slideIn 0.3s ease-out forwards;
+        }  
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+        .preconisation {
+            background-color: #f0f9ff;
+            border-left: 4px solid #0ea5e9;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .telephone-input {
+            @apply mt-2 p-2 w-full border border-gray-300 rounded-md focus:ring-2 focus:ring-cyan-400 focus:border-transparent;
+        }
+</style>
 </head>
 <body class="h-screen flex flex-col bg-gray-50">
     <header class="gradient-header p-4 shadow-lg">
@@ -84,6 +137,83 @@
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
 
+        function createQCMOptions(qcmData) {
+            const container = document.createElement('div');
+            container.className = 'qcm-options-container';
+        
+            // Ajouter le titre de la question
+            const title = document.createElement('div');
+            title.className = 'text-gray-700 font-medium mb-3';
+            title.textContent = qcmData.question;
+            container.appendChild(title);
+        
+            // Créer les boutons d'options
+            const optionsDiv = document.createElement('div');
+            optionsDiv.className = 'flex flex-wrap gap-2';
+        
+            qcmData.options.forEach(option => {
+                const button = document.createElement('button');
+                button.className = 'qcm-option';
+                button.textContent = option;
+                button.dataset.questionType = qcmData.type;
+                button.dataset.option = option;
+                button.onclick = () => sendQCMResponse(option, qcmData.type);
+                optionsDiv.appendChild(button);
+            });
+        
+            container.appendChild(optionsDiv);
+            return container;
+        }
+
+        function createPreconisation(data) {
+            return `
+            <div class="preconisation-container">
+                <div class="bg-gradient-to-r from-purple-50 to-cyan-50 rounded-lg p-6 shadow-sm">
+                    <h3 class="text-xl font-bold text-purple-800 mb-4">
+                        Préconisation personnalisée
+                    </h3>
+                    <div class="space-y-4">
+                        ${formatText(data.content)}
+                    </div>
+                    ${data.links ? `
+                    <div class="mt-4 pt-4 border-t border-purple-100">
+                        <p class="text-sm font-medium text-purple-800 mb-2">
+                            Pour approfondir :
+                        </p>
+                        <div class="space-y-2">
+                            ${data.links.map(link => `
+                                <a href="${link.url}" 
+                                   target="_blank"
+                                   class="block text-cyan-600 hover:text-cyan-800 underline text-sm">
+                                    ${link.title}
+                                </a>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>`;
+        }
+
+        function sendQCMResponse(option, questionType) {
+            appendMessage('user', option);
+            sendMessage(true, {
+                type: questionType,
+                response: option
+            });
+        
+            // Désactiver les options après sélection
+            const options = document.querySelectorAll('.qcm-option');
+            options.forEach(opt => {
+                opt.disabled = true;
+                if (opt.textContent === option) {
+                    opt.classList.add('selected');
+                } else {
+                    opt.classList.add('not-selected');
+                }
+            });
+        }
+        
         // Fonctions de formatage du texte
         function formatText(text) {
             const references = {};
@@ -161,31 +291,46 @@
         }
 
         // Fonctions de gestion des messages
-        function appendMessage(sender, text) {
+        function appendMessage(sender, content) {
             const messageDiv = document.createElement('div');
-            const messageId = Date.now();
-            messageDiv.id = `message-${messageId}`;
+            messageDiv.className = 'message-container animate-slide-in';
             
-            const messageContainer = document.createElement('div');
-            messageContainer.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
+            const innerDiv = document.createElement('div');
+            innerDiv.className = 
+                sender === 'user' 
+                    ? 'flex justify-end' 
+                    : 'flex justify-start w-full';
             
-            const messageContent = document.createElement('div');
-            messageContent.className = 'message-animation p-4 max-w-[80%] ' + 
-                (sender === 'user' 
+            const contentDiv = document.createElement('div');
+            contentDiv.className = `message-animation p-4 max-w-[80%] ${
+                sender === 'user' 
                     ? 'message-user text-white' 
-                    : 'message-bot text-gray-800');
+                    : 'message-bot text-gray-800'
+            }`;
             
-            if (sender === 'bot') {
-                messageContent.innerHTML = formatText(text);
+            if (typeof content === 'object') {
+                switch(content.type) {
+                    case 'qcm':
+                        contentDiv.appendChild(createQCMOptions(content));
+                        break;
+                    case 'preconisation':
+                        contentDiv.innerHTML = createPreconisation(content);
+                        break;
+                    default:
+                        contentDiv.innerHTML = formatText(content);
+                }
             } else {
-                messageContent.textContent = text;
+                contentDiv.innerHTML = 
+                    sender === 'bot' 
+                        ? formatText(content) 
+                        : content;
             }
             
-            messageContainer.appendChild(messageContent);
-            messageDiv.appendChild(messageContainer);
+            innerDiv.appendChild(contentDiv);
+            messageDiv.appendChild(innerDiv);
             messagesContainer.appendChild(messageDiv);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            return messageId;
+            
+            return messageDiv.id;
         }
         
         function updateMessage(messageId, sender, text) {
@@ -204,31 +349,17 @@
         }
         
         // Fonction d'envoi de message
-        async function sendMessage() {
-            const question = userInput.value.trim().toLowerCase();
+        async function sendMessage(isQCMResponse = false, qcmData = null) {
+            const question = isQCMResponse ? qcmData : userInput.value.trim();
             if (!question) return;
         
-            // Désactiver le bouton pendant l'envoi
             disableSendButton();
-        
-            appendMessage('user', userInput.value.trim());
-            userInput.value = '';
-            userInput.focus();
-        
-            // Vérifier si c'est un remerciement
-            const thanksPatterns = [
-                'merci', 'thanks', 'thx', 'thank you',
-                'je vous remercie', 'je te remercie',
-                'remerciement'
-            ];
             
-            if (thanksPatterns.some(pattern => question.includes(pattern))) {
-                appendMessage('bot', "Je vous en prie ! Je suis là pour vous aider. N'hésitez pas si vous avez d'autres questions. 😊");
-                enableSendButton();
-                return;
+            if (!isQCMResponse) {
+                appendMessage('user', question);
+                userInput.value = '';
             }
-        
-            // Si ce n'est pas un remerciement, continuer avec la recherche normale
+            
             const loadingId = appendMessage('bot', "En train de réfléchir...");
         
             try {
@@ -240,7 +371,8 @@
                     },
                     body: JSON.stringify({ 
                         question,
-                        conversation_id: conversationId 
+                        conversation_id: conversationId,
+                        is_qcm_response: isQCMResponse
                     })
                 });
         
@@ -251,16 +383,30 @@
                 const data = await response.json();
                 conversationId = data.conversation_id;
                 
-                const messageDiv = document.getElementById(`message-${loadingId}`);
-                if (messageDiv) {
+                // Vérifier si c'est une question QCM
+                if (data.type === 'qcm') {
+                    updateMessage(loadingId, 'bot', {
+                        type: 'qcm',
+                        question: data.question,
+                        options: data.options
+                    });
+                } else if (data.type === 'preconisation') {
+                    // Afficher la préconisation avec un style spécial
+                    updateMessage(loadingId, 'bot', `
+                        <div class="preconisation">
+                            <h3 class="text-lg font-bold mb-2">Préconisation personnalisée</h3>
+                            ${formatText(data.reponse)}
+                        </div>
+                    `);
+                } else {
                     updateMessage(loadingId, 'bot', data.reponse);
                 }
         
             } catch (error) {
                 console.error('Erreur:', error);
-                const errorMessage = "Désolé, je rencontre actuellement des difficultés. " +
-                                   "L'API pourrait être en cours de démarrage (1-2min au premier accès). " +
-                                   "Veuillez réessayer dans quelques instants.";
+                const errorMessage = error.message === 'Failed to fetch' 
+                    ? "Le service est momentanément indisponible. Veuillez réessayer dans quelques instants."
+                    : "Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?";
                 updateMessage(loadingId, 'bot', errorMessage);
             } finally {
                 enableSendButton();
