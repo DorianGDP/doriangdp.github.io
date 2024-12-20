@@ -10,8 +10,12 @@ class ChatBot:
     # Questions de qualification pour différentes étapes
     QUALIFICATION_QUESTIONS = {
         'name': [
-            "Pour personnaliser mes recommandations, comment souhaitez-vous que je m'adresse à vous ?",
-            "Afin d'adapter au mieux mes conseils, puis-je avoir votre nom ?"
+            "Je vois que vous avez des questions intéressantes sur la gestion de patrimoine. Pour mieux suivre notre échange, puis-je connaître votre nom ?",
+            "Pour personnaliser notre conversation et garder une trace de nos conseils, comment puis-je vous appeler ?"
+        ],
+        'contact': [
+            "Je peux vous envoyer dès maintenant un premier diagnostic gratuit de votre situation. Sur quelle adresse email puis-je vous l'envoyer ?",
+            "Pour que vous puissiez retrouver nos échanges et mes recommandations initiales, quelle est votre adresse email ?"
         ],
         'profession': [
             "Votre situation professionnelle va beaucoup influencer les stratégies possibles. Quelle est votre activité actuelle ?",
@@ -20,33 +24,30 @@ class ChatBot:
         'patrimoine': [
             "Pour vous orienter vers les solutions les plus adaptées, dans quelle fourchette se situe votre patrimoine global ?",
             "Afin de vous conseiller les meilleurs investissements, quel est approximativement votre niveau de patrimoine ?"
-        ],
-        'contact': [
-            "Je peux vous faire parvenir une analyse détaillée par email. Quelle est la meilleure adresse pour vous joindre ?",
-            "Pour vous envoyer une étude personnalisée de votre situation, quel serait le meilleur moyen de vous contacter ?"
         ]
     }
     SYSTEM_PROMPT = """Tu es Emma, l'assistante virtuelle de gestiondepatrimoine.com.
     
-    TON RÔLE :
-    - Guider naturellement la conversation pour collecter des informations sur le client
-    - Adapter ton approche selon le contexte et l'historique
-    - Donner des micro-réponses pour maintenir l'engagement
+    OBJECTIF PRINCIPAL : 
+    Collecter rapidement le nom et l'email du visiteur, quelle que soit sa question initiale.
     
-    RÈGLES DE CONVERSATION :
-    1. TOUJOURS remercier quand une information est partagée
-    2. TOUJOURS rebondir sur l'information donnée avant de poser une nouvelle question
-    3. NE JAMAIS poser plus d'une question à la fois
-    4. NE JAMAIS redemander une information déjà donnée
-    5. Rester naturelle et empathique
+    STRATÉGIE DE RÉPONSE :
+    1. TOUJOURS apporter une micro-réponse à la question du visiteur (1-2 phrases max)
+    2. PUIS enchaîner naturellement sur la collecte du nom ou email
     
-    INFORMATIONS À COLLECTER (dans l'ordre optimal) :
-    1. Nom → Pour personnaliser l'échange
-    2. Profession → Pour les solutions fiscales
-    3. Patrimoine → Pour les recommandations
-    4. Contact → Pour le suivi
+    SÉQUENCE OBLIGATOIRE :
+    1. Si pas de nom → Demander le nom en priorité absolue
+    2. Si nom mais pas d'email → Proposer l'envoi d'une analyse gratuite par email
+    3. Une fois nom + email obtenus → Passer aux autres informations
     
-    Une fois toutes les informations collectées, proposer un rendez-vous expert gratuit."""
+    FORMULATION TYPE :
+    - Si première interaction : "Votre question sur [sujet] est intéressante. Pour pouvoir vous répondre de manière personnalisée, puis-je d'abord connaître votre nom ?"
+    - Après avoir le nom : "Merci [nom]. Je peux vous envoyer une première analyse gratuite de votre situation. Sur quelle adresse email puis-je vous l'envoyer ?"
+    
+    IMPORTANT :
+    - NE JAMAIS donner de réponse détaillée avant d'avoir nom + email
+    - TOUJOURS justifier la demande d'email par l'envoi d'une analyse gratuite
+    - Insister sur : gratuit, sans engagement, personnalisé"""
 
     def __init__(self, api_key):
         """Initialise le chatbot avec la base de données d'embeddings"""
@@ -71,8 +72,15 @@ class ChatBot:
         self.conversations = {}
 
     def get_next_question(self, lead_info):
-        """Détermine la prochaine question à poser en fonction des informations manquantes"""
-        for field in ['name', 'profession', 'patrimoine', 'contact']:
+        """Détermine la prochaine question selon la nouvelle priorité"""
+        # Vérifier d'abord nom et email
+        if not lead_info.get('name'):
+            return np.random.choice(self.QUALIFICATION_QUESTIONS['name'])
+        if not lead_info.get('contact'):
+            return np.random.choice(self.QUALIFICATION_QUESTIONS['contact'])
+            
+        # Ensuite les autres informations
+        for field in ['profession', 'patrimoine']:
             if not lead_info.get(field):
                 return np.random.choice(self.QUALIFICATION_QUESTIONS[field])
         return None
