@@ -358,8 +358,6 @@
         // Fonction d'envoi de message
         async function sendMessage(isQCMResponse = false, qcmData = null) {
             const question = isQCMResponse ? qcmData.response : userInput.value.trim();
-            const questionType = isQCMResponse ? qcmData.type : null;
-        
             if (!question) return;
         
             disableSendButton();
@@ -372,28 +370,31 @@
             const loadingId = appendMessage('bot', "En train de réfléchir...");
         
             try {
-                const response = await fetch('URL_DE_VOTRE_API', {
-                    method: 'POST',
+                const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
+                    method: 'POST',  // Assurez-vous que c'est bien POST
                     headers: {
                         'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     },
                     body: JSON.stringify({ 
-                        message: question,
-                        conversation_id: conversationId,
+                        message: question,  // Changez 'question' en 'message'
+                        conversation_id: conversationId || '',  // Assurez un id valide
                         is_qcm_response: isQCMResponse,
-                        qcm_type: questionType  // Nouveauté pour suivre l'étape du QCM
+                        qcm_type: isQCMResponse ? qcmData.type : null
                     })
                 });
         
                 if (!response.ok) {
+                    // Log plus détaillé de l'erreur
+                    const errorText = await response.text();
+                    console.error('Erreur détaillée:', errorText);
                     throw new Error(`Erreur HTTP: ${response.status}`);
                 }
         
                 const data = await response.json();
                 conversationId = data.conversation_id;
                 
-                // Vérifier si c'est une question QCM
+                // Logique de traitement de la réponse
                 if (data.type === 'qcm') {
                     updateMessage(loadingId, 'bot', {
                         type: 'qcm',
@@ -401,19 +402,16 @@
                         options: data.options
                     });
                 } else if (data.type === 'preconisation') {
-                    // Afficher la préconisation avec un style spécial
-                    updateMessage(loadingId, 'bot', `
-                        <div class="preconisation">
-                            <h3 class="text-lg font-bold mb-2">Préconisation personnalisée</h3>
-                            ${formatText(data.reponse)}
-                        </div>
-                    `);
+                    updateMessage(loadingId, 'bot', {
+                        type: 'preconisation',
+                        content: data.reponse
+                    });
                 } else {
                     updateMessage(loadingId, 'bot', data.reponse);
                 }
         
             } catch (error) {
-                console.error('Erreur:', error);
+                console.error('Erreur complète:', error);
                 const errorMessage = error.message === 'Failed to fetch' 
                     ? "Le service est momentanément indisponible. Veuillez réessayer dans quelques instants."
                     : "Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?";
