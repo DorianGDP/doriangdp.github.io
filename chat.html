@@ -132,7 +132,7 @@
     <script>
         // Variables globales
         let isFirstMessage = true;
-        let conversationId = null;
+        let conversationId = '';
         const messagesContainer = document.getElementById('chat-messages');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
@@ -202,6 +202,135 @@
             </div>`;
         }
 
+        // Fonctions de gestion des messages
+        function appendMessage(sender, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message-container animate-slide-in';
+            messageDiv.id = `message-${Date.now()}`; // Ajoutez un ID unique
+                    
+            const innerDiv = document.createElement('div');
+            innerDiv.className = 
+                sender === 'user' 
+                    ? 'flex justify-end' 
+                    : 'flex justify-start w-full';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = `message-animation p-4 max-w-[80%] ${
+                sender === 'user' 
+                    ? 'message-user text-white' 
+                    : 'message-bot text-gray-800'
+            }`;
+            
+            if (typeof content === 'object') {
+                switch(content.type) {
+                    case 'qcm':
+                        contentDiv.appendChild(createQCMOptions(content));
+                        break;
+                    case 'preconisation':
+                        contentDiv.innerHTML = createPreconisation(content);
+                        break;
+                    default:
+                        contentDiv.innerHTML = formatText(content);
+                }
+            } else {
+                contentDiv.innerHTML = 
+                    sender === 'bot' 
+                        ? formatText(content) 
+                        : content;
+            }
+            
+            innerDiv.appendChild(contentDiv);
+            messageDiv.appendChild(innerDiv);
+            messagesContainer.appendChild(messageDiv);
+            
+            return messageDiv.id;
+        }
+        
+        // Fonction d'envoi de message
+        async function sendMessage(isQCMResponse = false, qcmData = null) {
+            const question = isQCMResponse ? qcmData.response : userInput.value.trim();
+            if (!question) {
+                console.error('Aucune question à envoyer');
+                return;
+            }
+        
+            // Générer un ID de conversation s'il n'existe pas
+            if (!conversationId) {
+                conversationId = Date.now().toString();
+            }
+        
+            disableSendButton();
+            
+            if (!isQCMResponse) {
+                appendMessage('user', question);
+                userInput.value = '';
+            }
+            
+            const loadingId = appendMessage('bot', "En train de réfléchir...");
+        
+            // Log du payload
+            console.log('Payload envoyé:', {
+                question: question,
+                conversation_id: conversationId || '',
+                is_qcm_response: isQCMResponse,
+                qcm_type: isQCMResponse ? qcmData.type : null
+            });
+        
+            try {
+                const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        question: question,  
+                        conversation_id: conversationId || '',
+                        is_qcm_response: isQCMResponse,
+                        qcm_type: isQCMResponse ? qcmData.type : null
+                    })
+                });
+        
+                // Log de la réponse brute
+                console.log('Réponse brute:', response);
+        
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Erreur détaillée:', errorText);
+                    throw new Error(`Erreur HTTP: ${response.status}`);
+                }
+        
+                const data = await response.json();
+                console.log('Données reçues:', data);
+        
+                conversationId = data.conversation_id;
+                
+                if (data.type === 'qcm') {
+                    updateMessage(loadingId, 'bot', {
+                        type: 'qcm',
+                        question: data.question,
+                        options: data.options
+                    });
+                } else if (data.type === 'preconisation') {
+                    updateMessage(loadingId, 'bot', {
+                        type: 'preconisation',
+                        content: data.reponse
+                    });
+                } else {
+                    updateMessage(loadingId, 'bot', data.reponse);
+                }
+        
+            } catch (error) {
+                console.error('Erreur complète:', error);
+                const errorMessage = error.message === 'Failed to fetch' 
+                    ? "Le service est momentanément indisponible. Veuillez réessayer dans quelques instants."
+                    : "Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?";
+                updateMessage(loadingId, 'bot', errorMessage);
+            } finally {
+                enableSendButton();
+            }
+        }
+        
         function sendQCMResponse(option, questionType) {
             appendMessage('user', option);
             sendMessage(true, {
@@ -296,52 +425,9 @@
         
             return `<div class="space-y-4">${formattedHtml}</div>`;
         }
-
-        // Fonctions de gestion des messages
-        function appendMessage(sender, content) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message-container animate-slide-in';
-            
-            const innerDiv = document.createElement('div');
-            innerDiv.className = 
-                sender === 'user' 
-                    ? 'flex justify-end' 
-                    : 'flex justify-start w-full';
-            
-            const contentDiv = document.createElement('div');
-            contentDiv.className = `message-animation p-4 max-w-[80%] ${
-                sender === 'user' 
-                    ? 'message-user text-white' 
-                    : 'message-bot text-gray-800'
-            }`;
-            
-            if (typeof content === 'object') {
-                switch(content.type) {
-                    case 'qcm':
-                        contentDiv.appendChild(createQCMOptions(content));
-                        break;
-                    case 'preconisation':
-                        contentDiv.innerHTML = createPreconisation(content);
-                        break;
-                    default:
-                        contentDiv.innerHTML = formatText(content);
-                }
-            } else {
-                contentDiv.innerHTML = 
-                    sender === 'bot' 
-                        ? formatText(content) 
-                        : content;
-            }
-            
-            innerDiv.appendChild(contentDiv);
-            messageDiv.appendChild(innerDiv);
-            messagesContainer.appendChild(messageDiv);
-            
-            return messageDiv.id;
-        }
         
         function updateMessage(messageId, sender, text) {
-            const messageDiv = document.getElementById(`message-${messageId}`);
+            const messageDiv = document.querySelector(`[id="${messageId}"]`);
             if (messageDiv && messageDiv.firstChild && messageDiv.firstChild.firstChild) {
                 const messageContent = messageDiv.firstChild.firstChild;
                 if (sender === 'bot') {
@@ -352,86 +438,6 @@
                     messageContent.className = 'message-animation p-4 max-w-[80%] message-user text-white';
                 }
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            }
-        }
-        
-        // Fonction d'envoi de message
-        async function sendMessage(isQCMResponse = false, qcmData = null) {
-            const question = isQCMResponse ? qcmData.response : userInput.value.trim();
-            if (!question) {
-                console.error('Aucune question à envoyer');
-                return;
-            }
-        
-            disableSendButton();
-            
-            if (!isQCMResponse) {
-                appendMessage('user', question);
-                userInput.value = '';
-            }
-            
-            const loadingId = appendMessage('bot', "En train de réfléchir...");
-        
-            // Log du payload
-            console.log('Payload envoyé:', {
-                question: question,
-                conversation_id: conversationId || '',
-                is_qcm_response: isQCMResponse,
-                qcm_type: isQCMResponse ? qcmData.type : null
-            });
-        
-            try {
-                const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({ 
-                        question: question,  
-                        conversation_id: conversationId || '',
-                        is_qcm_response: isQCMResponse,
-                        qcm_type: isQCMResponse ? qcmData.type : null
-                    })
-                });
-        
-                // Log de la réponse brute
-                console.log('Réponse brute:', response);
-        
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('Erreur détaillée:', errorText);
-                    throw new Error(`Erreur HTTP: ${response.status}`);
-                }
-        
-                const data = await response.json();
-                console.log('Données reçues:', data);
-        
-                conversationId = data.conversation_id;
-                
-                if (data.type === 'qcm') {
-                    updateMessage(loadingId, 'bot', {
-                        type: 'qcm',
-                        question: data.question,
-                        options: data.options
-                    });
-                } else if (data.type === 'preconisation') {
-                    updateMessage(loadingId, 'bot', {
-                        type: 'preconisation',
-                        content: data.reponse
-                    });
-                } else {
-                    updateMessage(loadingId, 'bot', data.reponse);
-                }
-        
-            } catch (error) {
-                console.error('Erreur complète:', error);
-                const errorMessage = error.message === 'Failed to fetch' 
-                    ? "Le service est momentanément indisponible. Veuillez réessayer dans quelques instants."
-                    : "Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?";
-                updateMessage(loadingId, 'bot', errorMessage);
-            } finally {
-                enableSendButton();
             }
         }
 
