@@ -249,9 +249,7 @@
         // Fonction d'envoi de message
         async function sendMessage(isQCMResponse = false, qcmData = null) {
             const question = isQCMResponse ? qcmData.response : userInput.value.trim();
-            if (!question) {
-                console.error('Aucune question à envoyer');
-                return;
+            if (!question) return;
             }
         
             // Générer un ID de conversation s'il n'existe pas
@@ -305,16 +303,12 @@
         
                 conversationId = data.conversation_id;
                 
+                // Gestion des différents types de réponses
                 if (data.type === 'qcm') {
                     updateMessage(loadingId, 'bot', {
                         type: 'qcm',
-                        question: data.question,
-                        options: data.options
-                    });
-                } else if (data.type === 'preconisation') {
-                    updateMessage(loadingId, 'bot', {
-                        type: 'preconisation',
-                        content: data.reponse
+                        question: data.next_question.question,
+                        options: data.next_question.options
                     });
                 } else {
                     updateMessage(loadingId, 'bot', data.reponse);
