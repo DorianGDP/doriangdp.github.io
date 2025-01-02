@@ -117,7 +117,54 @@ class ChatBot:
         
         # État de la conversation
         self.conversation_states = {}
+
+    def analyze_user_message(self, message: str) -> dict:
+        """Analyse le message utilisateur pour en extraire les informations pertinentes"""
+        info = {}
         
+        # Analyse des noms/prénoms (mots commençant par une majuscule)
+        name_match = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', message)
+        if name_match:
+            info['name'] = ' '.join(name_match)
+            
+        # Analyse des emails
+        email_match = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', message)
+        if email_match:
+            info['email'] = email_match[0]
+            
+        # Analyse des numéros de téléphone
+        phone_match = re.findall(r'(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}', message)
+        if phone_match:
+            info['phone'] = re.sub(r'[^\d+]', '', phone_match[0])
+            
+        # Analyse des montants
+        montant_match = re.findall(r'\b\d+(?:\s*[kKmM€]?\s*€?)?\b', message)
+        if montant_match:
+            # Convertir en nombre
+            montant = self.extract_number(montant_match[0])
+            if 'patrimoine' in message.lower():
+                info['patrimoine'] = montant
+            elif 'revenu' in message.lower():
+                info['revenus'] = montant
+                
+        # Analyse des objectifs
+        objectifs_keywords = {
+            'épargne': 'épargne',
+            'per': 'préparation retraite',
+            'retraite': 'préparation retraite',
+            'invest': 'investissement',
+            'immobilier': 'investissement immobilier',
+            'impôt': 'optimisation fiscale',
+            'fiscal': 'optimisation fiscale'
+        }
+        
+        for keyword, objectif in objectifs_keywords.items():
+            if keyword in message.lower():
+                info['objectifs'] = objectif
+                break
+                
+        return info
+    
     def validate_email(self, email: str) -> bool:
         """Valide le format d'une adresse email"""
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -266,61 +313,70 @@ class ChatBot:
             return float(re.sub(r'[^\d.]', '', cleaned))
         except:
             return 0.0
+
+    def format_response(self, state: dict) -> str:
+        """Formate la réponse en fonction de l'état de la conversation"""
+        if not state.get('name'):
+            return "Pour mieux vous accompagner, pourriez-vous me dire comment vous vous appelez ?"
             
+        if not state.get('email'):
+            return f"Merci {state['name']}. Pour vous envoyer une analyse personnalisée, quelle est votre adresse email ?"
+            
+        if not state.get('objectifs'):
+            if state.get('initial_question'):
+                return f"D'accord {state['name']}, j'ai bien noté votre intérêt pour {state['initial_question']}. Pour vous conseiller au mieux, quels sont vos autres objectifs patrimoniaux ?"
+            return "Quels sont vos objectifs patrimoniaux ? (épargne, investissement, retraite...)"
+            
+        if not state.get('patrimoine'):
+            return f"Pour adapter mes recommandations à votre situation {state['name']}, quel est approximativement votre patrimoine actuel ?"
+            
+        if not state.get('revenus'):
+            return "Et quels sont vos revenus annuels ?"
+            
+        if not state.get('phone'):
+            return f"Parfait {state['name']}. Pour qu'un de nos experts puisse vous recontacter et approfondir votre projet, quel est votre numéro de téléphone ?"
+            
+        # Si toutes les informations sont collectées
+        return self.generate_analysis(state)
+    
     def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Point d'entrée principal pour traiter une question"""
         try:
             # Initialiser ou récupérer l'état de la conversation
             state = self.conversation_states.get(conversation_id, {})
             
-            # Extraire les nouvelles informations de la question
-            new_info = self.extract_info_from_message(question)
-            state.update(new_info)
+            # Pour la première question, la sauvegarder comme contexte initial
+            if not state and 'per' in question.lower():
+                state['initial_question'] = 'PER (Plan Épargne Retraite)'
+                
+            # Analyser le message pour en extraire les informations
+            new_info = self.analyze_user_message(question)
+            print(f"Informations extraites: {new_info}")  # Debug
             
-            # Valider les informations critiques
-            if new_info.get('email') and not self.validate_email(new_info['email']):
-                return {
-                    'reponse': "Cette adresse email ne semble pas valide. Pourriez-vous la vérifier ?",
-                    'conversation_id': conversation_id,
-                    'type': 'text'
-                }
-                
-            if new_info.get('phone') and not self.validate_phone(new_info['phone']):
-                return {
-                    'reponse': "Ce numéro de téléphone ne semble pas valide. Pourriez-vous le vérifier ?",
-                    'conversation_id': conversation_id,
-                    'type': 'text'
-                }
-                
+            # Mettre à jour l'état avec les nouvelles informations
+            state.update(new_info)
+            print(f"Nouvel état: {state}")  # Debug
+            
             # Sauvegarder l'état mis à jour
             self.conversation_states[conversation_id] = state
             
-            # Déterminer la prochaine question
-            next_question = self.get_next_question(state)
+            # Générer la réponse appropriée
+            reponse = self.format_response(state)
             
-            # Si toutes les informations sont collectées
-            if not next_question:
-                # Générer l'analyse
-                analysis = self.generate_analysis(state)
-                # Sauvegarder dans Supabase
+            # Si toutes les informations sont collectées, sauvegarder dans Supabase
+            if all(k in state for k in ['name', 'email', 'phone', 'objectifs', 'patrimoine', 'revenus']):
                 self.save_to_supabase(state, conversation_id)
-                return {
-                    'reponse': analysis,
-                    'conversation_id': conversation_id,
-                    'type': 'analysis'
-                }
                 
-            # Sinon, poser la prochaine question
             return {
-                'reponse': next_question,
+                'reponse': reponse,
                 'conversation_id': conversation_id,
-                'type': 'text'
+                'type': 'text' if 'analyse' not in reponse.lower() else 'analysis'
             }
             
         except Exception as e:
             print(f"Erreur dans repondre_question : {str(e)}")
             return {
-                'reponse': "Désolé, je n'ai pas pu traiter votre demande. Pouvez-vous reformuler ?",
+                'reponse': "Désolé, une erreur s'est produite. Pouvez-vous reformuler ?",
                 'conversation_id': conversation_id,
                 'type': 'text'
             }
