@@ -123,125 +123,6 @@ class ChatBot:
             print(f"Erreur lors de l'extraction d'informations : {str(e)}")
             return {}
 
-    async def update_supabase_lead(self, lead_id: str, info: dict):
-        """Met à jour les informations du lead dans Supabase"""
-        try:
-            # Mise à jour de la table leads
-            lead_data = {
-                "updated_at": datetime.utcnow().isoformat(),
-            }
-            
-            if 'name' in info:
-                name_parts = info['name'].split()
-                lead_data["first_name"] = name_parts[0]
-                lead_data["last_name"] = ' '.join(name_parts[1:]) if len(name_parts) > 1 else None
-            
-            if 'email' in info:
-                lead_data["email"] = info['email']
-            if 'phone' in info:
-                lead_data["phone"] = info['phone']
-
-            # Mise à jour du lead
-            await self.supabase.table('leads').update(lead_data).eq('id', lead_id).execute()
-
-            # Mise à jour des informations patrimoniales
-            patrimoine_data = {
-                "updated_at": datetime.utcnow().isoformat(),
-            }
-
-            if 'objectifs' in info:
-                patrimoine_data["objectifs"] = info['objectifs']
-            if 'patrimoine' in info:
-                patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
-            if 'revenus' in info:
-                patrimoine_data["revenus_annuels"] = float(info['revenus'])
-            if 'age' in info:
-                patrimoine_data["age"] = int(info['age'])
-            if 'profession' in info:
-                patrimoine_data["profession"] = info['profession']
-            if 'situation_familiale' in info:
-                patrimoine_data["situation_familiale"] = info['situation_familiale']
-
-            # Mise à jour ou création des informations patrimoniales
-            await self.supabase.table('patrimoine_info').upsert({
-                "lead_id": lead_id,
-                **patrimoine_data
-            }).execute()
-
-        except Exception as e:
-            print(f"Erreur lors de la mise à jour Supabase : {str(e)}")
-            raise
-
-    async def create_or_update_supabase(self, conversation_id: str, info: dict) -> str:
-        """Crée ou met à jour les données dans Supabase"""
-        try:
-            conv = self.storage.get_conversation(conversation_id)
-            lead_id = conv.get('lead_id')
-
-            if not lead_id:
-                # Création d'un nouveau lead
-                lead_data = {
-                    "status": "nouveau",
-                    "source": "chatbot",
-                    "created_at": datetime.utcnow().isoformat(),
-                }
-                
-                if 'name' in info:
-                    name_parts = info['name'].split()
-                    lead_data["first_name"] = name_parts[0]
-                    lead_data["last_name"] = ' '.join(name_parts[1:]) if len(name_parts) > 1 else None
-                
-                if 'email' in info:
-                    lead_data["email"] = info['email']
-                if 'phone' in info:
-                    lead_data["phone"] = info['phone']
-
-                # Insérer le nouveau lead
-                result = await self.supabase.table('leads').insert(lead_data).execute()
-                lead_id = result.data[0]['id']
-                self.storage.set_lead_id(conversation_id, lead_id)
-
-                # Créer l'entrée de conversation
-                await self.supabase.table('conversations').insert({
-                    "lead_id": lead_id,
-                    "conversation_id": conversation_id,
-                    "status": "en_cours",
-                    "created_at": datetime.utcnow().isoformat()
-                }).execute()
-
-            # Mettre à jour les informations existantes
-            await self.update_supabase_lead(lead_id, info)
-            
-            return lead_id
-
-        except Exception as e:
-            print(f"Erreur lors de la création/mise à jour Supabase : {str(e)}")
-            raise
-
-    async def save_message(self, conversation_id: str, message: dict):
-        """Sauvegarde le message dans Supabase"""
-        try:
-            conv = self.storage.get_conversation(conversation_id)
-            lead_id = conv.get('lead_id')
-            
-            if lead_id:
-                # Récupérer l'ID de conversation Supabase
-                conv_result = await self.supabase.table('conversations')\
-                    .select('id')\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
-                
-                if conv_result.data:
-                    await self.supabase.table('messages').insert({
-                        "conversation_id": conv_result.data[0]['id'],
-                        "message_type": message['role'],
-                        "content": message['content'],
-                        "created_at": datetime.utcnow().isoformat()
-                    }).execute()
-
-        except Exception as e:
-            print(f"Erreur lors de la sauvegarde du message : {str(e)}")
-
     def build_acknowledgment(self, extracted_info: dict) -> str:
         """Construit un accusé de réception naturel des informations reçues"""
         acknowledgments = []
@@ -271,9 +152,115 @@ class ChatBot:
         if acknowledgments:
             response = ". ".join(acknowledgments) + "."
             return response[0].upper() + response[1:]
+
+    async def update_supabase_lead(self, lead_id: str, info: dict):
+        try:
+            lead_data = {
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+            
+            if 'name' in info:
+                name_parts = info['name'].split()
+                lead_data["first_name"] = name_parts[0]
+                lead_data["last_name"] = ' '.join(name_parts[1:]) if len(name_parts) > 1 else None
+            
+            if 'email' in info:
+                lead_data["email"] = info['email']
+            if 'phone' in info:
+                lead_data["phone"] = info['phone']
+
+            await self.supabase.table('leads').update(lead_data).eq('id', lead_id).execute()
+
+            patrimoine_data = {
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+
+            if 'objectifs' in info:
+                patrimoine_data["objectifs"] = info['objectifs']
+            if 'patrimoine' in info:
+                patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
+            if 'revenus' in info:
+                patrimoine_data["revenus_annuels"] = float(info['revenus'])
+            if 'age' in info:
+                patrimoine_data["age"] = int(info['age'])
+            if 'profession' in info:
+                patrimoine_data["profession"] = info['profession']
+            if 'situation_familiale' in info:
+                patrimoine_data["situation_familiale"] = info['situation_familiale']
+
+            await self.supabase.table('patrimoine_info').upsert({
+                "lead_id": lead_id,
+                **patrimoine_data
+            }).execute()
+
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour Supabase : {str(e)}")
+            raise
+
+    async def create_or_update_supabase(self, conversation_id: str, info: dict) -> str:
+        try:
+            conv = self.storage.get_conversation(conversation_id)
+            lead_id = conv.get('lead_id')
+
+            if not lead_id:
+                lead_data = {
+                    "status": "nouveau",
+                    "source": "chatbot",
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+                
+                if 'name' in info:
+                    name_parts = info['name'].split()
+                    lead_data["first_name"] = name_parts[0]
+                    lead_data["last_name"] = ' '.join(name_parts[1:]) if len(name_parts) > 1 else None
+                
+                if 'email' in info:
+                    lead_data["email"] = info['email']
+                if 'phone' in info:
+                    lead_data["phone"] = info['phone']
+
+                result = await self.supabase.table('leads').insert(lead_data).execute()
+                lead_id = result.data[0]['id']
+                self.storage.set_lead_id(conversation_id, lead_id)
+
+                await self.supabase.table('conversations').insert({
+                    "lead_id": lead_id,
+                    "conversation_id": conversation_id,
+                    "status": "en_cours",
+                    "created_at": datetime.utcnow().isoformat()
+                }).execute()
+
+            await self.update_supabase_lead(lead_id, info)
+            
+            return lead_id
+
+        except Exception as e:
+            print(f"Erreur lors de la création/mise à jour Supabase : {str(e)}")
+            raise
+
+    async def save_message(self, conversation_id: str, message: dict):
+        try:
+            conv = self.storage.get_conversation(conversation_id)
+            lead_id = conv.get('lead_id')
+            
+            if lead_id:
+                conv_result = await self.supabase.table('conversations')\
+                    .select('id')\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
+                
+                if conv_result.data:
+                    await self.supabase.table('messages').insert({
+                        "conversation_id": conv_result.data[0]['id'],
+                        "message_type": message['role'],
+                        "content": message['content'],
+                        "created_at": datetime.utcnow().isoformat()
+                    }).execute()
+
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde du message : {str(e)}")
     
     async def get_next_question(self, conversation: dict) -> tuple:
-        """Détermine la prochaine question à poser en fonction des informations déjà collectées"""
         info_collected = conversation.get('info_collected', {})
         
         for question_info in self.question_sequence:
@@ -282,37 +269,33 @@ class ChatBot:
                 return field, question_info['question']
                 
         return None, None
-    
+
     async def get_next_response(self, conversation: dict, extracted_info: dict) -> str:
         try:
             info_collected = conversation.get('info_collected', {})
             messages_history = conversation.get('messages', [])
             
-            # Vérifier si c'est le premier message
             if len(messages_history) <= 1:
                 return "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour vous apporter les meilleures recommandations, j'aimerais mieux vous connaître. Pour commencer, puis-je connaître votre nom et prénom ?"
 
-            # Déterminer la prochaine information nécessaire
             next_field, next_question = await self.get_next_question(conversation)
 
-            # Construire la réponse
             response = ""
             
-            # Accusé de réception des nouvelles informations
             if extracted_info:
                 response = self.build_acknowledgment(extracted_info)
 
-            # Si toutes les informations sont collectées
             if not next_field:
                 return await self.generate_final_analysis(info_collected)
 
-            # Ajouter la prochaine question
             response += f"\n\n{next_question}" if response else next_question
             
             return response
+        except Exception as e:
+            print(f"Erreur dans get_next_response: {str(e)}")
+            raise
 
     async def generate_final_analysis(self, info_collected: dict) -> str:
-        """Génère une analyse personnalisée basée sur toutes les informations collectées"""
         try:
             prompt = f"""
             En tant que conseillère en gestion de patrimoine, génère une analyse personnalisée
@@ -346,7 +329,6 @@ class ChatBot:
             )
             
             return response.choices[0].message.content
-
         except Exception as e:
             print(f"Erreur dans generate_final_analysis: {str(e)}")
             return "Je suis désolée, je rencontre des difficultés pour générer l'analyse finale. Pouvons-nous reprendre notre conversation ?"
