@@ -270,7 +270,7 @@ class ChatBot:
                 
         return None, None
 
-async def get_next_response(self, conversation: dict, extracted_info: dict) -> str:
+    async def get_next_response(self, conversation: dict, extracted_info: dict) -> str:
         try:
             info_collected = conversation.get('info_collected', {})
             messages_history = conversation.get('messages', [])
