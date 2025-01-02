@@ -1,4 +1,4 @@
-import openai
+from openai import OpenAI
 from supabase import create_client
 import os
 import json
@@ -30,9 +30,8 @@ class ConversationStorage:
 class ChatBot:
     """Gère l'intelligence du chatbot et les interactions avec l'utilisateur"""
     def __init__(self, api_key: str):
-        self.api_key = api_key
+        self.client = OpenAI(api_key=api_key)
         self.storage = ConversationStorage()
-        openai.api_key = api_key  # Important: définir la clé API
         
         # Initialisation de Supabase
         supabase_url = os.getenv("SUPABASE_URL")
@@ -69,19 +68,16 @@ class ChatBot:
             Pour les montants, renvoie uniquement les nombres (sans € ou euros)
             """
 
-            response = openai.ChatCompletion.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{
-                    "role": "system",
-                    "content": "Tu es un assistant spécialisé dans l'extraction d'informations de messages."
-                }, {
-                    "role": "user",
-                    "content": prompt
-                }],
+                messages=[
+                    {"role": "system", "content": "Tu es un assistant spécialisé dans l'extraction d'informations de messages."},
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=0.3
             )
             
-            return json.loads(response.choices[0].message['content'])
+            return json.loads(response.choices[0].message.content)
         except Exception as e:
             print(f"Erreur lors de l'extraction d'informations : {str(e)}")
             return {}
@@ -95,11 +91,7 @@ class ChatBot:
             Ta mission est de collecter des informations sur le client tout en restant naturelle et professionnelle.
             Si c'est le premier message, commence par te présenter et poser une première question simple."""
 
-            # Construire l'historique des messages pour le contexte
-            messages = [{
-                "role": "system",
-                "content": system_prompt
-            }]
+            messages = [{"role": "system", "content": system_prompt}]
 
             # Ajouter les messages précédents pour le contexte
             for msg in messages_history[-3:]:
@@ -122,21 +114,20 @@ class ChatBot:
             5. Si toutes les informations sont collectées, propose une analyse
             """
 
-            messages.append({
-                "role": "user",
-                "content": context
-            })
+            messages.append({"role": "user", "content": context})
 
-            response = openai.ChatCompletion.create(
-                model="gpt-4o",  # ou "gpt-4" selon votre accès
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
                 messages=messages,
                 temperature=0.7
             )
             
-            return response.choices[0].message['content']
+            return response.choices[0].message.content
+
         except Exception as e:
             print(f"Erreur lors de la génération de réponse : {str(e)}")
             return "Je suis désolée, je rencontre des difficultés techniques. Pouvons-nous reprendre notre conversation?"
+
 
     async def save_to_supabase(self, conversation_id: str):
         """Sauvegarde les informations dans Supabase"""
@@ -218,14 +209,13 @@ class ChatBot:
                     await self.save_to_supabase(conversation_id)
                 except Exception as e:
                     print(f"Erreur lors de la sauvegarde Supabase: {str(e)}")
-                    # Continue même si la sauvegarde échoue
             
             try:
                 # Générer la réponse
                 response = await self.get_next_response(conversation, extracted_info)
             except Exception as e:
                 print(f"Erreur lors de la génération de réponse: {str(e)}")
-                raise  # Remonter l'erreur car c'est critique
+                raise
             
             # Ajouter la réponse à l'historique
             self.storage.add_message(conversation_id, {
@@ -245,9 +235,9 @@ class ChatBot:
             traceback.print_exc()
             
             error_message = "Je suis désolée, je rencontre des difficultés techniques. "
-            if isinstance(e, openai.error.InvalidRequestError):
+            if "InvalidRequestError" in str(type(e)):
                 error_message += "Pourriez-vous reformuler votre question de manière plus claire ?"
-            elif isinstance(e, openai.error.APIError):
+            elif "APIError" in str(type(e)):
                 error_message += "Le service est momentanément indisponible. Pouvez-vous réessayer dans quelques instants ?"
             else:
                 error_message += "Pouvons-nous reprendre notre conversation ?"
