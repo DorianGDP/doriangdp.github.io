@@ -31,6 +31,15 @@ class ConversationStorage:
         self._conversations[conversation_id]['messages'].append(message)
 
 class ChatBot:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.storage = ConversationStorage()
+        
+        # Initialisation de Supabase
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_KEY")
+        self.supabase: Client = create_client(supabase_url, supabase_key)
+        
     # Questions initiales plus naturelles
     INITIAL_GREETINGS = [
         "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Comment puis-je vous aider aujourd'hui ?",
@@ -131,21 +140,14 @@ class ChatBot:
         3. Liens vers contenus pertinents
         4. Proposition de contact personnalisé"""
 
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.storage = ConversationStorage()
-        
+
     def extract_number(self, text: str) -> float:
-        """Extrait un nombre d'une chaîne de caractères"""
         try:
-            # Supprimer les symboles monétaires et les espaces
             cleaned = re.sub(r'[€\s]', '', text)
-            # Gérer les variations de format (K, M, etc.)
             if 'K' in cleaned.upper():
                 cleaned = str(float(cleaned.upper().replace('K', '')) * 1000)
             elif 'M' in cleaned.upper():
                 cleaned = str(float(cleaned.upper().replace('M', '')) * 1000000)
-            # Gérer les formats avec "million" ou "mille"
             elif 'million' in text.lower():
                 cleaned = str(float(re.sub(r'[^\d.]', '', cleaned)) * 1000000)
             elif 'mille' in text.lower():
@@ -174,35 +176,27 @@ class ChatBot:
 
         # Si nous n'avons pas encore le patrimoine
         if not current_state.get('patrimoine'):
-            if any(word in message.lower() for word in ['euro', '€', 'euros']):
+            if any(word in message.lower() for word in ['euro', '€', 'euros', 'million']):
                 numbers = re.findall(r'\d+(?:\s*\d*)*(?:\s*[kKmM])?', message)
                 if numbers:
                     montant = self.extract_number(message)
                     if montant > 0:
                         info['patrimoine'] = montant
                         print(f"Patrimoine trouvé : {info['patrimoine']}")
-        
-        # Analyse des montants si pertinent
-        if 'patrimoine' in message.lower() or not current_state.get('patrimoine'):
-            montant_match = re.findall(r'\b\d+(?:\s*[kKmM€]?\s*€?)?\b', message)
-            if montant_match:
-                montant = self.extract_number(message)
-                if montant > 0:
-                    info['patrimoine'] = montant
 
-        # Analyse des revenus si pas encore connus
+        # Analyse des revenus
         if not current_state.get('revenus') and ('revenu' in message.lower() or 'gagne' in message.lower()):
             montant_match = re.findall(r'\b\d+(?:\s*[kKmM€]?\s*€?)?\b', message)
             if montant_match:
                 info['revenus'] = self.extract_number(message)
 
-        # Analyse du téléphone si pas encore connu
+        # Analyse du téléphone
         if not current_state.get('phone'):
             phone_match = re.findall(r'(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}', message)
             if phone_match:
                 info['phone'] = re.sub(r'[^\d+]', '', phone_match[0])
 
-        # Analyse des objectifs si pas encore connus
+        # Analyse des objectifs
         if not current_state.get('objectifs'):
             objectifs_keywords = {
                 'épargne': 'épargne',
@@ -279,7 +273,6 @@ class ChatBot:
                 lead_response = await self.supabase.table('leads').upsert(lead_data).execute()
                 lead_id = lead_response.data[0]['id'] if lead_response.data else None
                 
-                # Si on a un lead_id, mettre à jour les autres informations
                 if lead_id:
                     # Mettre à jour les informations patrimoniales
                     patrimoine_data = {
@@ -307,7 +300,6 @@ class ChatBot:
             print(f"Erreur Supabase : {str(e)}")
     
     def get_next_question(self, state: dict) -> str:
-        """Détermine la prochaine question à poser"""
         if not state.get('name'):
             return "Pour mieux vous accompagner, pourriez-vous me dire comment vous vous appelez ?"
         
@@ -423,37 +415,29 @@ class ChatBot:
         # Si toutes les informations sont collectées
         return self.generate_analysis(state)
     
-    def repondre_question(self, question: str, conversation_id: str) -> dict:
+    async def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Point d'entrée principal pour traiter une question"""
         try:
-            # Récupérer l'état actuel de la conversation
+            # Initialiser ou récupérer l'état
             state = self.storage.get_state(conversation_id)
             
-            # Enregistrer la question
-            self.storage.add_message(conversation_id, {
-                'type': 'user',
-                'content': question
-            })
+            # Vérifier si c'est la première question
+            if not state:
+                if 'per' in question.lower():
+                    state['objectifs'] = 'préparation retraite'
             
-            # Analyser la question pour en extraire les informations
+            # Analyser le message
             new_info = self.analyze_user_message(question, state)
             print(f"Nouvelles informations extraites: {new_info}")
             
-            # Mettre à jour l'état avec les nouvelles informations
+            # Mettre à jour l'état
             if new_info:
                 self.storage.update_state(conversation_id, new_info)
-                # Mise à jour immédiate dans Supabase
-                await self.update_supabase(self.storage.get_state(conversation_id), conversation_id)
+                # Mise à jour dans Supabase
+                await self.update_supabase(state, conversation_id)
             
-            # Déterminer la prochaine question
-            current_state = self.storage.get_state(conversation_id)
-            response = self.get_next_question(current_state)
-            
-            # Enregistrer la réponse
-            self.storage.add_message(conversation_id, {
-                'type': 'bot',
-                'content': response
-            })
+            # Obtenir la prochaine question
+            response = self.get_next_question(state)
             
             return {
                 'reponse': response,
