@@ -4,10 +4,10 @@ import os
 import asyncio
 import traceback
 import json
+import re  # Ajout de l'import manquant
 from datetime import datetime
 
 app = Flask(__name__)
-app.config['ENV'] = os.getenv('FLASK_ENV', 'production')
 CORS(app, resources={
     r"/api/*": {
         "origins": ["https://doriangdp.github.io"],
@@ -172,4 +172,4 @@ def format_amount(amount):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port)
