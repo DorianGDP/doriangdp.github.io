@@ -4,8 +4,9 @@ import os
 import asyncio
 import traceback
 import json
-import re  # Ajout de l'import manquant
+import re
 from datetime import datetime
+from supabase import create_client, Client
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -17,47 +18,89 @@ CORS(app, resources={
     }
 })
 
-# Structure pour stocker les conversations
+# Initialisation de Supabase
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY")
+supabase = create_client(supabase_url, supabase_key)
+
+# Structure pour stocker les conversations en mémoire
 conversations = {}
 
 def create_conversation_id():
     return f"conv_{int(datetime.now().timestamp())}"
 
+async def save_to_supabase(info, conversation_id):
+    try:
+        # Créer ou mettre à jour le lead
+        lead_data = {
+            "first_name": info.get('name', '').split()[0] if info.get('name') else None,
+            "last_name": ' '.join(info.get('name', '').split()[1:]) if info.get('name') else None,
+            "email": info.get('email'),
+            "phone": info.get('phone'),
+            "status": "nouveau"
+        }
+        
+        lead_response = await supabase.table('leads').upsert(lead_data).execute()
+        if lead_response.data:
+            lead_id = lead_response.data[0]['id']
+            
+            # Mettre à jour les informations patrimoniales
+            if info.get('patrimoine'):
+                patrimoine_data = {
+                    "lead_id": lead_id,
+                    "patrimoine_total": float(info['patrimoine']),
+                    "revenus_annuels": float(info.get('revenus', 0))
+                }
+                await supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
+            
+            # Enregistrer la conversation
+            conversation_data = {
+                "lead_id": lead_id,
+                "conversation_id": conversation_id,
+                "status": "en_cours"
+            }
+            await supabase.table('conversations').upsert(conversation_data).execute()
+            
+            return True
+    except Exception as e:
+        print(f"Erreur Supabase: {str(e)}")
+        return False
+
 @app.route('/api/chat', methods=['POST'])
-def chat():
+async def chat():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({
-                'error': 'Données manquantes'
-            }), 400
+            return jsonify({'error': 'Données manquantes'}), 400
 
         question = data.get('question', '').strip()
-        conversation_id = data.get('conversation_id', '').strip()
+        conversation_id = data.get('conversation_id', '')
 
         if not conversation_id:
             conversation_id = create_conversation_id()
 
         if not question:
-            return jsonify({
-                'error': 'Question manquante'
-            }), 400
+            return jsonify({'error': 'Question manquante'}), 400
 
         # Récupérer ou initialiser l'état de la conversation
-        conversation = conversations.get(conversation_id, {
-            'step': 0,
-            'info': {}
-        })
-
+        if conversation_id not in conversations:
+            conversations[conversation_id] = {
+                'step': 0,
+                'info': {}
+            }
+        
+        conversation = conversations[conversation_id]
+        
         # Analyser la question pour extraire les informations
         info = analyze_message(question, conversation['info'])
         conversation['info'].update(info)
+        
+        # Sauvegarder dans Supabase si nous avons de nouvelles informations
+        if info:
+            await save_to_supabase(conversation['info'], conversation_id)
 
         # Déterminer la prochaine question
         response = get_next_question(conversation)
-
-        # Mettre à jour la conversation
-        conversations[conversation_id] = conversation
 
         return jsonify({
             'reponse': response,
@@ -82,17 +125,19 @@ def analyze_message(message, current_info):
         name_patterns = [
             r"Je m'appelle ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
             r"mon nom est ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
-            r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*) est mon nom"
+            r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)"  # Pattern simplifié pour capturer directement le nom
         ]
         for pattern in name_patterns:
             if match := re.search(pattern, message):
                 info['name'] = match.group(1)
+                print(f"Nom trouvé : {info['name']}")
                 break
 
     # Extraction email
     if not current_info.get('email'):
         if email_match := re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', message):
             info['email'] = email_match.group()
+            print(f"Email trouvé : {info['email']}")
 
     # Extraction patrimoine
     if not current_info.get('patrimoine'):
@@ -106,6 +151,7 @@ def analyze_message(message, current_info):
                 value = parse_amount(match.group(1))
                 if value:
                     info['patrimoine'] = value
+                    print(f"Patrimoine trouvé : {info['patrimoine']}")
                     break
 
     return info
@@ -121,7 +167,7 @@ def get_next_question(conversation):
         return f"Merci {info['name']}! Pour pouvoir vous envoyer une analyse détaillée, quelle est votre adresse email ?"
     
     if not info.get('patrimoine'):
-        return "Pour personnaliser mes recommandations, quel est approximativement votre patrimoine actuel ?"
+        return f"Pour personnaliser mes recommandations, {info['name']}, quel est approximativement votre patrimoine actuel ?"
     
     # Analyse finale si toutes les informations sont collectées
     return generate_analysis(info)
@@ -140,24 +186,19 @@ def generate_analysis(info):
     - Immobilier locatif
     - Assurance-vie multi-supports
     
-    Je vous propose un échange téléphonique gratuit avec l'un de nos experts pour approfondir cette analyse.
-    
-    Souhaitez-vous être recontacté ?"""
+    Pour approfondir cette analyse, je peux vous mettre en relation avec l'un de nos experts. 
+    Souhaitez-vous être recontacté par téléphone ?"""
     
     return analysis
 
 def parse_amount(amount_str):
     """Convertit une chaîne de montant en nombre"""
     try:
-        # Nettoyer la chaîne
         amount = amount_str.replace(' ', '').upper()
-        
-        # Gérer les K/M
         if 'K' in amount:
             return float(amount.replace('K', '')) * 1000
         if 'M' in amount:
             return float(amount.replace('M', '')) * 1000000
-            
         return float(amount)
     except:
         return None
