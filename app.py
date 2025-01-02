@@ -2,26 +2,17 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 from chatbot import ChatBot
+import asyncio
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Initialisation du chatbot comme variable globale
-chatbot = None
-
-def get_chatbot():
-    global chatbot
-    if chatbot is None:
-        api_key = os.environ.get('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("La clé API OpenAI n'est pas configurée")
-        chatbot = ChatBot(api_key)
-    return chatbot
+chatbot = ChatBot(os.environ.get('OPENAI_API_KEY'))
 
 @app.route('/api/chat', methods=['POST'])
-def chat():
+async def chat():
     try:
-        # Récupérer et valider les données
         data = request.json
         if not data:
             return jsonify({
@@ -29,32 +20,30 @@ def chat():
                 'details': 'Le corps de la requête est vide'
             }), 400
 
-        question = data.get('question', '').strip()
+        # Log pour debug
+        print("Requête reçue:", data)
+        
+        question = data.get('question', '')
         conversation_id = data.get('conversation_id', '')
-
-        # Validation des données
+        
         if not question:
             return jsonify({
                 'error': 'Question manquante',
                 'details': 'Aucune question n\'a été fournie'
             }), 400
-
+            
         if not conversation_id:
             return jsonify({
                 'error': 'ID de conversation manquant',
                 'details': 'L\'ID de conversation est requis'
             }), 400
 
+        # Appel au chatbot et récupération de la réponse
+        response = await chatbot.repondre_question(question, conversation_id)
+        
         # Log pour debug
-        print(f"Traitement requête - ID: {conversation_id}, Question: {question}")
-
-        # Obtenir l'instance du chatbot et traiter la question
-        bot = get_chatbot()
-        response = bot.repondre_question(question, conversation_id)
-
-        # Log pour debug
-        print(f"Réponse générée: {response}")
-
+        print("Réponse générée:", response)
+        
         return jsonify(response)
 
     except Exception as e:
