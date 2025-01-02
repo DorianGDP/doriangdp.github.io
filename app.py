@@ -23,11 +23,25 @@ supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_KEY")
 supabase = create_client(supabase_url, supabase_key)
 
-# Structure pour stocker les conversations en mémoire
-conversations = {}
+class ConversationManager:
+    def __init__(self):
+        self.conversations = {}
 
-def create_conversation_id():
-    return f"conv_{int(datetime.now().timestamp())}"
+    def get_conversation(self, conversation_id):
+        return self.conversations.get(conversation_id, {'step': 0, 'info': {}})
+
+    def update_conversation(self, conversation_id, info):
+        if conversation_id not in self.conversations:
+            self.conversations[conversation_id] = {'step': 0, 'info': {}}
+        self.conversations[conversation_id]['info'].update(info)
+        print(f"Conversation mise à jour - ID: {conversation_id}, Info: {self.conversations[conversation_id]}")
+        return self.conversations[conversation_id]
+
+    def get_info(self, conversation_id):
+        return self.conversations.get(conversation_id, {'info': {}})['info']
+
+# Instance globale du gestionnaire de conversations
+conversation_manager = ConversationManager()
 
 async def save_to_supabase(info, conversation_id):
     try:
@@ -44,7 +58,6 @@ async def save_to_supabase(info, conversation_id):
         if lead_response.data:
             lead_id = lead_response.data[0]['id']
             
-            # Mettre à jour les informations patrimoniales
             if info.get('patrimoine'):
                 patrimoine_data = {
                     "lead_id": lead_id,
@@ -53,7 +66,6 @@ async def save_to_supabase(info, conversation_id):
                 }
                 await supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
             
-            # Enregistrer la conversation
             conversation_data = {
                 "lead_id": lead_id,
                 "conversation_id": conversation_id,
@@ -66,78 +78,33 @@ async def save_to_supabase(info, conversation_id):
         print(f"Erreur Supabase: {str(e)}")
         return False
 
-@app.route('/api/chat', methods=['POST'])
-async def chat():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'Données manquantes'}), 400
-
-        question = data.get('question', '').strip()
-        conversation_id = data.get('conversation_id', '')
-
-        if not conversation_id:
-            conversation_id = create_conversation_id()
-
-        if not question:
-            return jsonify({'error': 'Question manquante'}), 400
-
-        # Récupérer ou initialiser l'état de la conversation
-        if conversation_id not in conversations:
-            conversations[conversation_id] = {
-                'step': 0,
-                'info': {}
-            }
-        
-        conversation = conversations[conversation_id]
-        
-        # Analyser la question pour extraire les informations
-        info = analyze_message(question, conversation['info'])
-        conversation['info'].update(info)
-        
-        # Sauvegarder dans Supabase si nous avons de nouvelles informations
-        if info:
-            await save_to_supabase(conversation['info'], conversation_id)
-
-        # Déterminer la prochaine question
-        response = get_next_question(conversation)
-
-        return jsonify({
-            'reponse': response,
-            'conversation_id': conversation_id,
-            'type': 'text'
-        })
-
-    except Exception as e:
-        print(f"Erreur serveur : {str(e)}")
-        traceback.print_exc()
-        return jsonify({
-            'error': 'Erreur serveur',
-            'details': str(e)
-        }), 500
-
 def analyze_message(message, current_info):
     """Analyse le message pour en extraire les informations pertinentes"""
     info = {}
     
-    # Extraction du nom
+    # Extraction du nom - maintenant plus flexible
     if not current_info.get('name'):
+        # Première tentative : patterns spécifiques
         name_patterns = [
-            r"Je m'appelle ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
-            r"mon nom est ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
-            r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)"  # Pattern simplifié pour capturer directement le nom
+            r"je m'appelle ([a-zA-Z]+(?:\s+[a-zA-Z]+)*)",
+            r"mon nom est ([a-zA-Z]+(?:\s+[a-zA-Z]+)*)",
         ]
         for pattern in name_patterns:
-            if match := re.search(pattern, message):
-                info['name'] = match.group(1)
-                print(f"Nom trouvé : {info['name']}")
+            if match := re.search(pattern, message.lower()):
+                info['name'] = match.group(1).title()
+                print(f"Nom trouvé (pattern): {info['name']}")
                 break
+                
+        # Si aucun pattern ne correspond, considérer le message entier comme nom potentiel
+        if not info.get('name') and re.match(r'^[a-zA-Z\s]+$', message.strip()):
+            info['name'] = message.strip().title()
+            print(f"Nom trouvé (message entier): {info['name']}")
 
     # Extraction email
     if not current_info.get('email'):
         if email_match := re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', message):
             info['email'] = email_match.group()
-            print(f"Email trouvé : {info['email']}")
+            print(f"Email trouvé: {info['email']}")
 
     # Extraction patrimoine
     if not current_info.get('patrimoine'):
@@ -151,14 +118,69 @@ def analyze_message(message, current_info):
                 value = parse_amount(match.group(1))
                 if value:
                     info['patrimoine'] = value
-                    print(f"Patrimoine trouvé : {info['patrimoine']}")
+                    print(f"Patrimoine trouvé: {info['patrimoine']}")
                     break
 
+    print(f"Informations extraites: {info}")
     return info
+
+@app.route('/api/chat', methods=['POST'])
+async def chat():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Données manquantes'}), 400
+
+        question = data.get('question', '').strip()
+        conversation_id = data.get('conversation_id', '')
+
+        if not conversation_id:
+            conversation_id = f"conv_{int(datetime.now().timestamp())}"
+            print(f"Nouvelle conversation créée: {conversation_id}")
+        else:
+            print(f"Conversation existante: {conversation_id}")
+
+        if not question:
+            return jsonify({'error': 'Question manquante'}), 400
+
+        # Récupérer la conversation existante ou en créer une nouvelle
+        conversation = conversation_manager.get_conversation(conversation_id)
+        print(f"État actuel de la conversation: {conversation}")
+        
+        # Analyser le message
+        current_info = conversation.get('info', {})
+        new_info = analyze_message(question, current_info)
+        
+        if new_info:
+            conversation = conversation_manager.update_conversation(conversation_id, new_info)
+            print(f"Conversation mise à jour avec les nouvelles infos: {conversation}")
+            await save_to_supabase(conversation['info'], conversation_id)
+
+        # Déterminer la prochaine question
+        response = get_next_question(conversation)
+
+        return jsonify({
+            'reponse': response,
+            'conversation_id': conversation_id,
+            'type': 'text',
+            'debug_info': {
+                'conversation_state': conversation,
+                'new_info': new_info
+            }
+        })
+
+    except Exception as e:
+        print(f"Erreur serveur: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'error': 'Erreur serveur',
+            'details': str(e)
+        }), 500
 
 def get_next_question(conversation):
     """Détermine la prochaine question à poser"""
     info = conversation['info']
+    print(f"Génération de la prochaine question avec les infos: {info}")
     
     if not info.get('name'):
         return "Pour mieux vous accompagner, pourrais-je connaître votre nom ?"
