@@ -313,38 +313,43 @@ class ChatBot:
 
     async def generate_final_analysis(self, info_collected: dict) -> str:
         """Génère une analyse personnalisée basée sur toutes les informations collectées"""
-        prompt = f"""
-        En tant que conseillère en gestion de patrimoine, génère une analyse personnalisée
-        basée sur ces informations :
-        
-        Nom: {info_collected.get('name')}
-        Âge: {info_collected.get('age')}
-        Profession: {info_collected.get('profession')}
-        Situation familiale: {info_collected.get('situation_familiale')}
-        Revenus annuels: {info_collected.get('revenus')}€
-        Patrimoine: {info_collected.get('patrimoine')}€
-        Objectifs: {info_collected.get('objectifs')}
-        
-        L'analyse doit :
-        1. Être personnalisée et mentionner le nom du client
-        2. Résumer brièvement sa situation
-        3. Proposer 2-3 pistes d'optimisation patrimoniale
-        4. Se terminer par une proposition de rendez-vous personnalisé
-        """
+        try:
+            prompt = f"""
+            En tant que conseillère en gestion de patrimoine, génère une analyse personnalisée
+            basée sur ces informations :
+            
+            Nom: {info_collected.get('name')}
+            Âge: {info_collected.get('age')}
+            Profession: {info_collected.get('profession')}
+            Situation familiale: {info_collected.get('situation_familiale')}
+            Revenus annuels: {info_collected.get('revenus')}€
+            Patrimoine: {info_collected.get('patrimoine')}€
+            Objectifs: {info_collected.get('objectifs')}
+            
+            L'analyse doit :
+            1. Être personnalisée et mentionner le nom du client
+            2. Résumer brièvement sa situation
+            3. Proposer 2-3 pistes d'optimisation patrimoniale
+            4. Se terminer par une proposition de rendez-vous personnalisé
+            """
 
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[{
-                "role": "system",
-                "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et empathique."
-            }, {
-                "role": "user",
-                "content": prompt
-            }],
-            temperature=0.7
-        )
-        
-        return response.choices[0].message['content']
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{
+                    "role": "system",
+                    "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et empathique."
+                }, {
+                    "role": "user",
+                    "content": prompt
+                }],
+                temperature=0.7
+            )
+            
+            return response.choices[0].message.content
+
+        except Exception as e:
+            print(f"Erreur dans generate_final_analysis: {str(e)}")
+            return "Je suis désolée, je rencontre des difficultés pour générer l'analyse finale. Pouvons-nous reprendre notre conversation ?"
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Point d'entrée principal pour traiter une question"""
