@@ -1,10 +1,9 @@
-import faiss
-import numpy as np
-import json
-from openai import OpenAI
+import openai
+from supabase import create_client, Client
 import os
-import time
-from supabase import create_client
+import json
+import re
+from typing import Optional
 
 class ChatBot:
     # Questions initiales plus naturelles
@@ -132,7 +131,7 @@ class ChatBot:
         pattern = r'^(?:(?:\+|00)33|0)\d{9}$'
         return bool(re.match(pattern, phone))
         
-    def extract_info_from_message(self, message: str) -> Dict:
+    def extract_info_from_message(self, message: str) -> dict:
         """Extrait les informations pertinentes du message utilisateur"""
         try:
             response = openai.ChatCompletion.create(
@@ -159,7 +158,7 @@ class ChatBot:
             print(f"Erreur lors de l'extraction d'informations : {str(e)}")
             return {}
             
-    def get_next_question(self, state: Dict) -> Optional[str]:
+    def get_next_question(self, state: dict) -> Optional[str]:
         """Détermine la prochaine question à poser basée sur l'état actuel"""
         if not state.get('name'):
             return "Pour mieux vous accompagner, pourriez-vous me dire comment vous vous appelez ?"
@@ -181,7 +180,7 @@ class ChatBot:
             
         return None
         
-    def generate_analysis(self, state: Dict) -> str:
+    def generate_analysis(self, state: dict) -> str:
         """Génère une analyse personnalisée basée sur les informations collectées"""
         try:
             prompt = f"""
@@ -214,7 +213,7 @@ class ChatBot:
             print(f"Erreur lors de la génération de l'analyse : {str(e)}")
             return "Désolé, je n'ai pas pu générer l'analyse pour le moment."
             
-    async def save_to_supabase(self, state: Dict, conversation_id: str):
+    async def save_to_supabase(self, state: dict, conversation_id: str):
         """Sauvegarde les informations dans Supabase"""
         try:
             # Créer ou mettre à jour le lead
@@ -268,7 +267,7 @@ class ChatBot:
         except:
             return 0.0
             
-    def repondre_question(self, question: str, conversation_id: str) -> Dict:
+    def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Point d'entrée principal pour traiter une question"""
         try:
             # Initialiser ou récupérer l'état de la conversation
