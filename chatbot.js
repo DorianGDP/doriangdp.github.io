@@ -1,29 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertCircle } from 'lucide-react';
 
-const ChatBot = () => {
+const ChatComponent = () => {
   const [messages, setMessages] = useState([]);
   const [userInput, setUserInput] = useState('');
+  const [conversationId, setConversationId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [conversationId, setConversationId] = useState(null);
-  const messagesEndRef = useRef(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // Générer un ID unique pour la conversation
+    const newConversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setConversationId(newConversationId);
 
-  useEffect(() => {
-    // Message de bienvenue
+    // Ajouter le message de bienvenue
     setMessages([{
       type: 'bot',
       content: "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Comment puis-je vous aider aujourd'hui ?"
     }]);
-    // Générer un ID unique pour la conversation
-    setConversationId(Date.now().toString());
   }, []);
 
   const handleSubmit = async () => {
@@ -31,13 +24,13 @@ const ChatBot = () => {
 
     try {
       setIsLoading(true);
-      
+
       // Ajouter le message de l'utilisateur
       setMessages(prev => [...prev, {
         type: 'user',
-        content: userInput
+        content: userInput.trim()
       }]);
-      
+
       // Ajouter un message "en train d'écrire"
       setMessages(prev => [...prev, {
         type: 'bot',
@@ -45,25 +38,23 @@ const ChatBot = () => {
         isTyping: true
       }]);
 
-      // Envoyer la requête au backend
+      // Envoyer la requête
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          question: userInput,
+          question: userInput.trim(),
           conversation_id: conversationId
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Erreur réseau');
-      }
+      if (!response.ok) throw new Error('Erreur réseau');
 
       const data = await response.json();
 
-      // Remplacer le message "en train d'écrire" par la réponse
+      // Mettre à jour les messages
       setMessages(prev => [
         ...prev.filter(msg => !msg.isTyping),
         {
@@ -78,8 +69,6 @@ const ChatBot = () => {
 
     } catch (error) {
       console.error('Erreur:', error);
-      
-      // Afficher un message d'erreur
       setMessages(prev => [
         ...prev.filter(msg => !msg.isTyping),
         {
