@@ -1,11 +1,124 @@
-// chatbot.js
-document.addEventListener('DOMContentLoaded', function() {
-    const chatbotButton = document.getElementById('chatbotButton');
-    const chatbotContainer = document.getElementById('chatbotContainer');
-    let isOpen = false;
+import React, { useState, useEffect, useRef } from 'react';
+import { AlertCircle } from 'lucide-react';
 
-    chatbotButton.addEventListener('click', function() {
-        isOpen = !isOpen;
-        chatbotContainer.classList.toggle('hidden');
-    });
-});
+const ChatBot = () => {
+  const [messages, setMessages] = useState([]);
+  const [userInput, setUserInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    // Message de bienvenue
+    setMessages([{
+      type: 'bot',
+      content: "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Comment puis-je vous aider aujourd'hui ?"
+    }]);
+    // Générer un ID unique pour la conversation
+    setConversationId(Date.now().toString());
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!userInput.trim() || isLoading) return;
+
+    try {
+      setIsLoading(true);
+      
+      // Ajouter le message de l'utilisateur
+      setMessages(prev => [...prev, {
+        type: 'user',
+        content: userInput
+      }]);
+      
+      // Ajouter un message "en train d'écrire"
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: "...",
+        isTyping: true
+      }]);
+
+      // Envoyer la requête au backend
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          question: userInput,
+          conversation_id: conversationId
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Erreur réseau');
+      }
+
+      const data = await response.json();
+
+      // Remplacer le message "en train d'écrire" par la réponse
+      setMessages(prev => [
+        ...prev.filter(msg => !msg.isTyping),
+        {
+          type: 'bot',
+          content: data.reponse,
+          messageType: data.type
+        }
+      ]);
+
+      // Vider l'input
+      setUserInput('');
+
+    } catch (error) {
+      console.error('Erreur:', error);
+      
+      // Afficher un message d'erreur
+      setMessages(prev => [
+        ...prev.filter(msg => !msg.isTyping),
+        {
+          type: 'bot',
+          content: "Désolé, une erreur s'est produite. Pouvez-vous réessayer ?",
+          isError: true
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const formatMessage = (content, messageType) => {
+    if (messageType === 'analysis') {
+      return (
+        <div className="bg-gradient-to-r from-purple-50 to-cyan-50 rounded-lg p-4">
+          <h3 className="text-lg font-semibold text-purple-800 mb-2">
+            Analyse personnalisée
+          </h3>
+          <div className="space-y-2 text-gray-700">
+            {content.split('\n').map((line, i) => (
+              <p key={i}>{line}</p>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="whitespace-pre-wrap">
+        {content}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-gray-50">
+      {/* En-tête */}
+      <div className="bg-gradient-to-r from-purple-800 to-indigo-800 p-4 shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-
