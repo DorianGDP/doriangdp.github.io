@@ -55,6 +55,8 @@ const ChatComponent = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Origin': 'https://doriangdp.github.io'
         },
         body: JSON.stringify({
           question,
@@ -87,11 +89,66 @@ const ChatComponent = () => {
       }]);
     } finally {
       setIsLoading(false);
+      scrollToBottom();
     }
+  };
+
+  const formatMessage = (content) => {
+    // Fonction pour formater le contenu du message
+    if (typeof content !== 'string') return content;
+
+    // Remplacer les sauts de ligne par des balises <br>
+    const formattedContent = content.split('\n').map((line, i) => (
+      <React.Fragment key={i}>
+        {line}
+        {i !== content.split('\n').length - 1 && <br />}
+      </React.Fragment>
+    ));
+
+    return formattedContent;
   };
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, idx) => (
-          <div key={idx} className={
+          <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[80%] p-4 rounded-lg ${
+                msg.type === 'user'
+                  ? 'bg-cyan-500 text-white rounded-br-none'
+                  : 'bg-white shadow-md rounded-bl-none'
+              } ${msg.isError ? 'bg-red-50 text-red-600' : ''}`}
+            >
+              {formatMessage(msg.content)}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="Tapez votre message..."
+            className="flex-1 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            disabled={isLoading}
+          />
+          <button
+            type="submit"
+            disabled={isLoading}
+            className={`px-6 py-3 bg-cyan-500 text-white rounded-lg font-medium 
+              ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-cyan-600'}`}
+          >
+            {isLoading ? 'Envoi...' : 'Envoyer'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default ChatComponent;
