@@ -10,8 +10,17 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 # Initialisation du chatbot comme variable globale
 chatbot = ChatBot(os.environ.get('OPENAI_API_KEY'))
 
+def run_async(coroutine):
+    """Helper function to run async code in sync context"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coroutine)
+    finally:
+        loop.close()
+
 @app.route('/api/chat', methods=['POST'])
-async def chat():
+def chat():
     try:
         data = request.json
         if not data:
@@ -38,8 +47,8 @@ async def chat():
                 'details': 'L\'ID de conversation est requis'
             }), 400
 
-        # Appel au chatbot et récupération de la réponse
-        response = await chatbot.repondre_question(question, conversation_id)
+        # Appel au chatbot et récupération de la réponse de manière synchrone
+        response = run_async(chatbot.repondre_question(question, conversation_id))
         
         # Log pour debug
         print("Réponse générée:", response)
