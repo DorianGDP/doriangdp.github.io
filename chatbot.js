@@ -1,50 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
-const ChatComponent = () => {
+const ChatbotComponent = () => {
   const [messages, setMessages] = useState([]);
   const [userInput, setUserInput] = useState('');
-  const [conversationId, setConversationId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   const messagesEndRef = useRef(null);
+  
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 2000;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
-    // Message de bienvenue initial
-    setMessages([{
-      type: 'bot',
-      content: "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Comment puis-je vous aider aujourd'hui ?"
-    }]);
-    
-    // Générer un ID de conversation unique
-    const newConversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    setConversationId(newConversationId);
-    
-    // Sauvegarder l'ID dans le localStorage pour persister entre les rafraîchissements
-    localStorage.setItem('chatConversationId', newConversationId);
-  }, []);
-
-  // Restaurer l'ID de conversation depuis le localStorage si disponible
-  useEffect(() => {
-    const savedConversationId = localStorage.getItem('chatConversationId');
-    if (savedConversationId && !conversationId) {
-      setConversationId(savedConversationId);
-    }
-  }, [conversationId]);
-
-  useEffect(scrollToBottom, [messages]);
+    scrollToBottom();
+  }, [messages]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!userInput.trim() || isLoading) return;
 
-    setIsLoading(true);
     const question = userInput.trim();
     setUserInput('');
+    setError(null);
+    setIsLoading(true);
 
-    // Ajouter le message utilisateur
+    // Ajouter le message utilisateur immédiatement
     setMessages(prev => [...prev, {
       type: 'user',
       content: question
@@ -60,67 +46,70 @@ const ChatComponent = () => {
         },
         body: JSON.stringify({
           question,
-          conversation_id: conversationId
+          conversation_id: localStorage.getItem('chatConversationId') || `conv_${Date.now()}`
         })
       });
 
       if (!response.ok) {
-        throw new Error('Erreur réseau');
+        throw new Error(`Erreur HTTP: ${response.status}`);
       }
 
       const data = await response.json();
       
-      if (data.debug_info) {
-        console.log('Debug info:', data.debug_info);
+      if (data.error) {
+        throw new Error(data.error);
       }
-      
+
       setMessages(prev => [...prev, {
         type: 'bot',
-        content: data.reponse,
-        messageType: data.type
+        content: data.reponse
       }]);
+      
+      setRetryCount(0); // Réinitialiser le compteur après un succès
 
     } catch (error) {
       console.error('Erreur:', error);
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: "Désolé, une erreur s'est produite. Pouvez-vous réessayer ?",
-        isError: true
-      }]);
+      setError(error.message);
+      
+      if (retryCount < MAX_RETRIES) {
+        setTimeout(() => {
+          setRetryCount(prev => prev + 1);
+          handleSubmit(e);
+        }, RETRY_DELAY);
+      } else {
+        setMessages(prev => [...prev, {
+          type: 'bot',
+          content: "Je suis désolée, je rencontre des difficultés techniques. Pourriez-vous reformuler votre question différemment ?",
+          isError: true
+        }]);
+      }
     } finally {
       setIsLoading(false);
-      scrollToBottom();
     }
-  };
-
-  const formatMessage = (content) => {
-    // Fonction pour formater le contenu du message
-    if (typeof content !== 'string') return content;
-
-    // Remplacer les sauts de ligne par des balises <br>
-    const formattedContent = content.split('\n').map((line, i) => (
-      <React.Fragment key={i}>
-        {line}
-        {i !== content.split('\n').length - 1 && <br />}
-      </React.Fragment>
-    ));
-
-    return formattedContent;
   };
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              {error}
+            </AlertDescription>
+          </Alert>
+        )}
+        
         {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-[80%] p-4 rounded-lg ${
-                msg.type === 'user'
-                  ? 'bg-cyan-500 text-white rounded-br-none'
-                  : 'bg-white shadow-md rounded-bl-none'
-              } ${msg.isError ? 'bg-red-50 text-red-600' : ''}`}
-            >
-              {formatMessage(msg.content)}
+          <div key={idx} 
+               className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} 
+                          message-animation`}>
+            <div className={`max-w-[80%] p-4 rounded-lg shadow-sm
+              ${msg.type === 'user' 
+                ? 'bg-cyan-500 text-white rounded-br-none' 
+                : 'bg-white rounded-bl-none'}
+              ${msg.isError ? 'bg-red-50 text-red-600 border border-red-200' : ''}`}>
+              {msg.content}
             </div>
           </div>
         ))}
@@ -141,7 +130,8 @@ const ChatComponent = () => {
             type="submit"
             disabled={isLoading}
             className={`px-6 py-3 bg-cyan-500 text-white rounded-lg font-medium 
-              ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-cyan-600'}`}
+              ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-cyan-600'}
+              transition-all duration-200`}
           >
             {isLoading ? 'Envoi...' : 'Envoyer'}
           </button>
@@ -151,4 +141,4 @@ const ChatComponent = () => {
   );
 };
 
-export default ChatComponent;
+export default ChatbotComponent;
