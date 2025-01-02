@@ -7,11 +7,11 @@ import json
 from datetime import datetime
 
 app = Flask(__name__)
+app.config['ENV'] = os.getenv('FLASK_ENV', 'production')
 CORS(app, resources={
     r"/api/*": {
         "origins": [
-            "https://doriangdp.github.io",
-            "http://localhost:3000"  # Pour le développement local
+            "https://doriangdp.github.io"
         ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"]
