@@ -7,7 +7,16 @@ import json
 from datetime import datetime
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [
+            "https://doriangdp.github.io",
+            "http://localhost:3000"  # Pour le développement local
+        ],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 # Structure pour stocker les conversations
 conversations = {}
