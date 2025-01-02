@@ -32,6 +32,7 @@ class ChatBot:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.storage = ConversationStorage()
+        openai.api_key = api_key  # Important: définir la clé API
         
         # Initialisation de Supabase
         supabase_url = os.getenv("SUPABASE_URL")
@@ -86,43 +87,49 @@ class ChatBot:
             return {}
 
     async def get_next_response(self, conversation: dict, extracted_info: dict) -> str:
-        """Utilise GPT pour générer une réponse naturelle"""
         try:
             info_collected = conversation.get('info_collected', {})
             messages_history = conversation.get('messages', [])
             
-            # Préparer le contexte pour GPT
-            context = {
-                "info_collected": info_collected,
-                "missing_info": {k: v for k, v in self.required_info.items() if k not in info_collected},
-                "last_messages": messages_history[-3:] if messages_history else [],
-                "new_info": extracted_info
-            }
+            system_prompt = """Tu es Emma, une conseillère en gestion de patrimoine expérimentée et sympathique. 
+            Ta mission est de collecter des informations sur le client tout en restant naturelle et professionnelle.
+            Si c'est le premier message, commence par te présenter et poser une première question simple."""
 
-            prompt = f"""En tant que conseiller en gestion de patrimoine, génère une réponse naturelle basée sur ce contexte :
+            # Construire l'historique des messages pour le contexte
+            messages = [{
+                "role": "system",
+                "content": system_prompt
+            }]
+
+            # Ajouter les messages précédents pour le contexte
+            for msg in messages_history[-3:]:
+                messages.append({
+                    "role": "user" if msg["role"] == "user" else "assistant",
+                    "content": msg["content"]
+                })
+
+            # Ajouter le contexte des informations
+            context = f"""
+            Informations déjà collectées : {json.dumps(info_collected, ensure_ascii=False)}
+            Informations manquantes : {json.dumps({k: v for k, v in self.required_info.items() if k not in info_collected}, ensure_ascii=False)}
+            Nouvelles informations : {json.dumps(extracted_info, ensure_ascii=False)}
             
-            Informations déjà collectées : {json.dumps(context['info_collected'], ensure_ascii=False)}
-            Informations manquantes : {json.dumps(context['missing_info'], ensure_ascii=False)}
-            Nouvelles informations : {json.dumps(context['new_info'], ensure_ascii=False)}
-            
-            Règles :
-            1. Si de nouvelles informations sont fournies, accuse réception naturellement
-            2. Pose UNE question pour obtenir la prochaine information manquante
-            3. Reste amical et professionnel
-            4. Adapte la question au contexte de la conversation
+            Instructions :
+            1. Si c'est le premier message, présente-toi et pose une première question
+            2. Si de nouvelles informations sont fournies, accuse réception naturellement
+            3. Pose UNE question pour obtenir la prochaine information manquante
+            4. Reste amical et professionnel
             5. Si toutes les informations sont collectées, propose une analyse
-            
-            Ton objectif est de collecter toutes les informations manquantes de manière naturelle et conversationnelle."""
+            """
+
+            messages.append({
+                "role": "user",
+                "content": context
+            })
 
             response = openai.ChatCompletion.create(
-                model="gpt-4o",
-                messages=[{
-                    "role": "system",
-                    "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et sympathique."
-                }, {
-                    "role": "user",
-                    "content": prompt
-                }],
+                model="gpt-4o",  # ou "gpt-4" selon votre accès
+                messages=messages,
                 temperature=0.7
             )
             
