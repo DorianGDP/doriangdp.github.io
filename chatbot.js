@@ -1,113 +1,121 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertCircle } from 'lucide-react';
 
 const ChatComponent = () => {
   const [messages, setMessages] = useState([]);
   const [userInput, setUserInput] = useState('');
   const [conversationId, setConversationId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   useEffect(() => {
-    // Générer un ID unique pour la conversation
-    const newConversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    setConversationId(newConversationId);
-
-    // Ajouter le message de bienvenue
+    // Message de bienvenue initial
     setMessages([{
       type: 'bot',
       content: "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Comment puis-je vous aider aujourd'hui ?"
     }]);
+    
+    // Générer un ID de conversation unique
+    setConversationId(`conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
   }, []);
 
-  const handleSubmit = async () => {
+  useEffect(scrollToBottom, [messages]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     if (!userInput.trim() || isLoading) return;
 
+    setIsLoading(true);
+    const question = userInput.trim();
+    setUserInput('');
+
+    // Ajouter le message utilisateur
+    setMessages(prev => [...prev, {
+      type: 'user',
+      content: question
+    }]);
+
     try {
-      setIsLoading(true);
-
-      // Ajouter le message de l'utilisateur
-      setMessages(prev => [...prev, {
-        type: 'user',
-        content: userInput.trim()
-      }]);
-
-      // Ajouter un message "en train d'écrire"
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: "...",
-        isTyping: true
-      }]);
-
-      // Envoyer la requête
-      const response = await fetch('/api/chat', {
+      const response = await fetch('http://localhost:5000/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          question: userInput.trim(),
+          question,
           conversation_id: conversationId
         })
       });
 
-      if (!response.ok) throw new Error('Erreur réseau');
+      if (!response.ok) {
+        throw new Error('Erreur réseau');
+      }
 
       const data = await response.json();
-
-      // Mettre à jour les messages
-      setMessages(prev => [
-        ...prev.filter(msg => !msg.isTyping),
-        {
-          type: 'bot',
-          content: data.reponse,
-          messageType: data.type
-        }
-      ]);
-
-      // Vider l'input
-      setUserInput('');
+      
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: data.reponse,
+        messageType: data.type
+      }]);
 
     } catch (error) {
       console.error('Erreur:', error);
-      setMessages(prev => [
-        ...prev.filter(msg => !msg.isTyping),
-        {
-          type: 'bot',
-          content: "Désolé, une erreur s'est produite. Pouvez-vous réessayer ?",
-          isError: true
-        }
-      ]);
+      setMessages(prev => [...prev, {
+        type: 'bot',
+        content: "Désolé, une erreur s'est produite. Pouvez-vous réessayer ?",
+        isError: true
+      }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const formatMessage = (content, messageType) => {
-    if (messageType === 'analysis') {
-      return (
-        <div className="bg-gradient-to-r from-purple-50 to-cyan-50 rounded-lg p-4">
-          <h3 className="text-lg font-semibold text-purple-800 mb-2">
-            Analyse personnalisée
-          </h3>
-          <div className="space-y-2 text-gray-700">
-            {content.split('\n').map((line, i) => (
-              <p key={i}>{line}</p>
-            ))}
-          </div>
-        </div>
-      );
-    }
-    
-    return (
-      <div className="whitespace-pre-wrap">
-        {content}
-      </div>
-    );
-  };
-
   return (
     <div className="flex flex-col h-full bg-gray-50">
-      {/* En-tête */}
-      <div className="bg-gradient-to-r from-purple-800 to-indigo-800 p-4 shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white rounded-full flex items-center justify-
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[75%] rounded-lg p-3 ${
+                msg.type === 'user'
+                  ? 'bg-cyan-500 text-white'
+                  : 'bg-white text-gray-800 shadow'
+              }`}
+            >
+              {msg.content}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+      
+      <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            placeholder="Tapez votre message..."
+            className="flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
+            disabled={isLoading}
+          />
+          <button
+            type="submit"
+            disabled={isLoading}
+            className={`px-4 py-2 bg-cyan-500 text-white rounded-lg ${
+              isLoading ? 'opacity-50' : 'hover:bg-cyan-600'
+            }`}
+          >
+            {isLoading ? '...' : 'Envoyer'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default ChatComponent;
