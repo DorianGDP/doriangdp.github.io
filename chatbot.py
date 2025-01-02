@@ -180,6 +180,13 @@ class ChatBot:
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Point d'entrée principal pour traiter une question"""
         try:
+            # Vérification des paramètres
+            if not isinstance(question, str) or not question.strip():
+                raise ValueError("La question ne peut pas être vide")
+                
+            if not isinstance(conversation_id, str) or not conversation_id.strip():
+                conversation_id = f"conv_{time.time()}"
+
             # Récupérer ou créer la conversation
             conversation = self.storage.get_conversation(conversation_id)
             
@@ -189,17 +196,29 @@ class ChatBot:
                 "content": question
             })
             
-            # Extraire les informations du message
-            extracted_info = await self.extract_info_from_message(question)
+            try:
+                # Extraire les informations du message
+                extracted_info = await self.extract_info_from_message(question)
+            except Exception as e:
+                print(f"Erreur lors de l'extraction d'informations: {str(e)}")
+                extracted_info = {}
             
-            # Mettre à jour les informations collectées
             if extracted_info:
-                self.storage.update_info(conversation_id, extracted_info)
-                # Sauvegarder dans Supabase
-                await self.save_to_supabase(conversation_id)
+                try:
+                    # Mettre à jour les informations collectées
+                    self.storage.update_info(conversation_id, extracted_info)
+                    # Sauvegarder dans Supabase
+                    await self.save_to_supabase(conversation_id)
+                except Exception as e:
+                    print(f"Erreur lors de la sauvegarde Supabase: {str(e)}")
+                    # Continue même si la sauvegarde échoue
             
-            # Générer la réponse
-            response = await self.get_next_response(conversation, extracted_info)
+            try:
+                # Générer la réponse
+                response = await self.get_next_response(conversation, extracted_info)
+            except Exception as e:
+                print(f"Erreur lors de la génération de réponse: {str(e)}")
+                raise  # Remonter l'erreur car c'est critique
             
             # Ajouter la réponse à l'historique
             self.storage.add_message(conversation_id, {
@@ -214,9 +233,21 @@ class ChatBot:
             }
             
         except Exception as e:
-            print(f"Erreur dans repondre_question : {str(e)}")
+            print(f"Erreur critique dans repondre_question: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            error_message = "Je suis désolée, je rencontre des difficultés techniques. "
+            if isinstance(e, openai.error.InvalidRequestError):
+                error_message += "Pourriez-vous reformuler votre question de manière plus claire ?"
+            elif isinstance(e, openai.error.APIError):
+                error_message += "Le service est momentanément indisponible. Pouvez-vous réessayer dans quelques instants ?"
+            else:
+                error_message += "Pouvons-nous reprendre notre conversation ?"
+                
             return {
-                'reponse': "Désolé, une erreur s'est produite. Pouvez-vous reformuler ?",
+                'reponse': error_message,
                 'conversation_id': conversation_id,
-                'type': 'text'
+                'type': 'text',
+                'error': True
             }
