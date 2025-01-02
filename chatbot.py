@@ -135,7 +135,7 @@ class ChatBot:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
 
-        def generate_contextual_response(self, initial_query: str, extracted_info: dict, 
+    def generate_contextual_response(self, initial_query: str, extracted_info: dict, 
                                    missing_info: list) -> str:
         """Génère une réponse contextuelle basée sur la question initiale et les informations manquantes"""
         try:
