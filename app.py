@@ -10,11 +10,10 @@ app = Flask(__name__)
 app.config['ENV'] = os.getenv('FLASK_ENV', 'production')
 CORS(app, resources={
     r"/api/*": {
-        "origins": [
-            "https://doriangdp.github.io"
-        ],
+        "origins": ["https://doriangdp.github.io"],
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
+        "allow_headers": ["Content-Type", "Authorization", "Accept", "Origin"],
+        "expose_headers": ["Content-Type", "Authorization"]
     }
 })
 
