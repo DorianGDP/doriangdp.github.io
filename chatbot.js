@@ -19,8 +19,20 @@ const ChatComponent = () => {
     }]);
     
     // Générer un ID de conversation unique
-    setConversationId(`conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+    const newConversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setConversationId(newConversationId);
+    
+    // Sauvegarder l'ID dans le localStorage pour persister entre les rafraîchissements
+    localStorage.setItem('chatConversationId', newConversationId);
   }, []);
+
+  // Restaurer l'ID de conversation depuis le localStorage si disponible
+  useEffect(() => {
+    const savedConversationId = localStorage.getItem('chatConversationId');
+    if (savedConversationId && !conversationId) {
+      setConversationId(savedConversationId);
+    }
+  }, [conversationId]);
 
   useEffect(scrollToBottom, [messages]);
 
@@ -56,6 +68,10 @@ const ChatComponent = () => {
 
       const data = await response.json();
       
+      if (data.debug_info) {
+        console.log('Debug info:', data.debug_info);
+      }
+      
       setMessages(prev => [...prev, {
         type: 'bot',
         content: data.reponse,
@@ -78,44 +94,4 @@ const ChatComponent = () => {
     <div className="flex flex-col h-full bg-gray-50">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-[75%] rounded-lg p-3 ${
-                msg.type === 'user'
-                  ? 'bg-cyan-500 text-white'
-                  : 'bg-white text-gray-800 shadow'
-              }`}
-            >
-              {msg.content}
-            </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-      
-      <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            placeholder="Tapez votre message..."
-            className="flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            disabled={isLoading}
-            className={`px-4 py-2 bg-cyan-500 text-white rounded-lg ${
-              isLoading ? 'opacity-50' : 'hover:bg-cyan-600'
-            }`}
-          >
-            {isLoading ? '...' : 'Envoyer'}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-};
-
-export default ChatComponent;
+          <div key={idx} className={
