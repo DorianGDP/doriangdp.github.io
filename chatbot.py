@@ -118,51 +118,78 @@ class ChatBot:
         # État de la conversation
         self.conversation_states = {}
 
-    def analyze_user_message(self, message: str) -> dict:
+    def extract_number(self, text: str) -> float:
+        """Extrait un nombre d'une chaîne de caractères"""
+        try:
+            # Supprimer les symboles monétaires et les espaces
+            cleaned = re.sub(r'[€\s]', '', text)
+            # Gérer les variations de format (K, M, etc.)
+            if 'K' in cleaned.upper():
+                cleaned = str(float(cleaned.upper().replace('K', '')) * 1000)
+            elif 'M' in cleaned.upper():
+                cleaned = str(float(cleaned.upper().replace('M', '')) * 1000000)
+            # Gérer les formats avec "million" ou "mille"
+            elif 'million' in text.lower():
+                cleaned = str(float(re.sub(r'[^\d.]', '', cleaned)) * 1000000)
+            elif 'mille' in text.lower():
+                cleaned = str(float(re.sub(r'[^\d.]', '', cleaned)) * 1000)
+            return float(re.sub(r'[^\d.]', '', cleaned))
+        except:
+            return 0.0
+    
+    def analyze_user_message(self, message: str, current_state: dict) -> dict:
         """Analyse le message utilisateur pour en extraire les informations pertinentes"""
         info = {}
         
-        # Analyse des noms/prénoms (mots commençant par une majuscule)
-        name_match = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', message)
-        if name_match:
-            info['name'] = ' '.join(name_match)
-            
-        # Analyse des emails
-        email_match = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', message)
-        if email_match:
-            info['email'] = email_match[0]
-            
-        # Analyse des numéros de téléphone
-        phone_match = re.findall(r'(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}', message)
-        if phone_match:
-            info['phone'] = re.sub(r'[^\d+]', '', phone_match[0])
-            
-        # Analyse des montants
-        montant_match = re.findall(r'\b\d+(?:\s*[kKmM€]?\s*€?)?\b', message)
-        if montant_match:
-            # Convertir en nombre
-            montant = self.extract_number(montant_match[0])
-            if 'patrimoine' in message.lower():
-                info['patrimoine'] = montant
-            elif 'revenu' in message.lower():
-                info['revenus'] = montant
-                
-        # Analyse des objectifs
-        objectifs_keywords = {
-            'épargne': 'épargne',
-            'per': 'préparation retraite',
-            'retraite': 'préparation retraite',
-            'invest': 'investissement',
-            'immobilier': 'investissement immobilier',
-            'impôt': 'optimisation fiscale',
-            'fiscal': 'optimisation fiscale'
-        }
+        # Analyse des noms/prénoms si pas encore connus
+        if not current_state.get('name'):
+            name_match = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', message)
+            if name_match:
+                info['name'] = ' '.join(name_match)
         
-        for keyword, objectif in objectifs_keywords.items():
-            if keyword in message.lower():
-                info['objectifs'] = objectif
-                break
-                
+        # Analyse des emails si pas encore connus
+        if not current_state.get('email'):
+            email_match = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', message)
+            if email_match:
+                info['email'] = email_match[0]
+        
+        # Analyse des montants si pertinent
+        if 'patrimoine' in message.lower() or not current_state.get('patrimoine'):
+            montant_match = re.findall(r'\b\d+(?:\s*[kKmM€]?\s*€?)?\b', message)
+            if montant_match:
+                montant = self.extract_number(message)
+                if montant > 0:
+                    info['patrimoine'] = montant
+
+        # Analyse des revenus si pas encore connus
+        if not current_state.get('revenus') and ('revenu' in message.lower() or 'gagne' in message.lower()):
+            montant_match = re.findall(r'\b\d+(?:\s*[kKmM€]?\s*€?)?\b', message)
+            if montant_match:
+                info['revenus'] = self.extract_number(message)
+
+        # Analyse du téléphone si pas encore connu
+        if not current_state.get('phone'):
+            phone_match = re.findall(r'(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}', message)
+            if phone_match:
+                info['phone'] = re.sub(r'[^\d+]', '', phone_match[0])
+
+        # Analyse des objectifs si pas encore connus
+        if not current_state.get('objectifs'):
+            objectifs_keywords = {
+                'épargne': 'épargne',
+                'per': 'préparation retraite',
+                'retraite': 'préparation retraite',
+                'invest': 'investissement',
+                'immobilier': 'investissement immobilier',
+                'impôt': 'optimisation fiscale',
+                'fiscal': 'optimisation fiscale'
+            }
+            
+            for keyword, objectif in objectifs_keywords.items():
+                if keyword in message.lower():
+                    info['objectifs'] = objectif
+                    break
+
         return info
     
     def validate_email(self, email: str) -> bool:
@@ -182,7 +209,7 @@ class ChatBot:
         """Extrait les informations pertinentes du message utilisateur"""
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-4",
+                model="gpt-4oo",
                 messages=[{
                     "role": "system",
                     "content": """Analyse le message et extrait les informations suivantes au format JSON :
@@ -204,38 +231,80 @@ class ChatBot:
         except Exception as e:
             print(f"Erreur lors de l'extraction d'informations : {str(e)}")
             return {}
+
+    async def update_supabase(self, state: dict, conversation_id: str) -> None:
+        """Met à jour progressivement les données dans Supabase"""
+        try:
+            # Créer ou mettre à jour le lead
+            lead_data = {}
+            if state.get('name'):
+                names = state['name'].split()
+                lead_data['first_name'] = names[0]
+                lead_data['last_name'] = ' '.join(names[1:]) if len(names) > 1 else None
+            if state.get('email'):
+                lead_data['email'] = state['email']
+            if state.get('phone'):
+                lead_data['phone'] = state['phone']
             
-    def get_next_question(self, state: dict) -> Optional[str]:
-        """Détermine la prochaine question à poser basée sur l'état actuel"""
+            if lead_data:
+                lead_response = await self.supabase.table('leads').upsert(lead_data).execute()
+                lead_id = lead_response.data[0]['id'] if lead_response.data else None
+                
+                # Si on a un lead_id, mettre à jour les autres informations
+                if lead_id:
+                    # Mettre à jour les informations patrimoniales
+                    patrimoine_data = {
+                        "lead_id": lead_id,
+                    }
+                    if state.get('objectifs'):
+                        patrimoine_data['objectifs'] = [state['objectifs']]
+                    if state.get('patrimoine'):
+                        patrimoine_data['patrimoine_total'] = float(state['patrimoine'])
+                    if state.get('revenus'):
+                        patrimoine_data['revenus_annuels'] = float(state['revenus'])
+                    
+                    if patrimoine_data:
+                        await self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
+                    
+                    # Mettre à jour la conversation
+                    conversation_data = {
+                        "lead_id": lead_id,
+                        "conversation_id": conversation_id,
+                        "status": "en_cours"
+                    }
+                    await self.supabase.table('conversations').upsert(conversation_data).execute()
+
+        except Exception as e:
+            print(f"Erreur Supabase : {str(e)}")
+    
+    def get_next_question(self, state: dict) -> str:
+        """Détermine la prochaine question à poser"""
         if not state.get('name'):
             return "Pour mieux vous accompagner, pourriez-vous me dire comment vous vous appelez ?"
         
         if not state.get('email'):
-            return f"Merci {state['name']}. Pour pouvoir vous envoyer une analyse détaillée, quelle est votre adresse email ?"
-            
-        if not state.get('objectifs'):
-            return "Quels sont vos objectifs patrimoniaux ? (Par exemple : épargne, investissement, préparation retraite...)"
-            
+            return f"Merci {state['name']}. Pour vous envoyer une analyse personnalisée, quelle est votre adresse email ?"
+        
         if not state.get('patrimoine'):
-            return "Pour vous conseiller au mieux, quel est approximativement votre patrimoine actuel ?"
-            
+            return f"Pour adapter mes recommandations à votre situation {state['name']}, quel est approximativement votre patrimoine actuel ?"
+        
         if not state.get('revenus'):
-            return "Et quels sont vos revenus annuels ?"
-            
+            return f"Merci. Et quels sont vos revenus annuels environ ?"
+        
         if not state.get('phone'):
-            return "Enfin, pour qu'un de nos experts puisse vous recontacter, quel est votre numéro de téléphone ?"
-            
-        return None
+            return "Parfait. Pour qu'un de nos experts puisse vous recontacter rapidement, quel est votre numéro de téléphone ?"
+        
+        return self.generate_analysis(state)
         
     def generate_analysis(self, state: dict) -> str:
-        """Génère une analyse personnalisée basée sur les informations collectées"""
+        """Génère une analyse personnalisée"""
         try:
             prompt = f"""
             Génère une analyse patrimoniale personnalisée pour un client avec le profil suivant :
             - Nom : {state.get('name')}
             - Objectifs : {state.get('objectifs')}
-            - Patrimoine : {state.get('patrimoine')}
-            - Revenus : {state.get('revenus')}
+            - Patrimoine : {state.get('patrimoine')}€
+            - Revenus : {state.get('revenus')}€
             
             Format requis :
             1. Synthèse de la situation
@@ -247,7 +316,7 @@ class ChatBot:
             """
             
             response = openai.ChatCompletion.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[{
                     "role": "system",
                     "content": prompt
@@ -299,20 +368,6 @@ class ChatBot:
         except Exception as e:
             print(f"Erreur Supabase : {str(e)}")
             return False
-            
-    def extract_number(self, text: str) -> float:
-        """Extrait un nombre d'une chaîne de caractères"""
-        try:
-            # Supprimer les symboles monétaires et les espaces
-            cleaned = re.sub(r'[€\s]', '', text)
-            # Convertir les K/M en milliers/millions
-            if 'K' in cleaned.upper():
-                cleaned = str(float(cleaned.upper().replace('K', '')) * 1000)
-            elif 'M' in cleaned.upper():
-                cleaned = str(float(cleaned.upper().replace('M', '')) * 1000000)
-            return float(re.sub(r'[^\d.]', '', cleaned))
-        except:
-            return 0.0
 
     def format_response(self, state: dict) -> str:
         """Formate la réponse en fonction de l'état de la conversation"""
@@ -342,35 +397,31 @@ class ChatBot:
     def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Point d'entrée principal pour traiter une question"""
         try:
-            # Initialiser ou récupérer l'état de la conversation
+            # Initialiser ou récupérer l'état
             state = self.conversation_states.get(conversation_id, {})
             
-            # Pour la première question, la sauvegarder comme contexte initial
-            if not state and 'per' in question.lower():
-                state['initial_question'] = 'PER (Plan Épargne Retraite)'
-                
-            # Analyser le message pour en extraire les informations
-            new_info = self.analyze_user_message(question)
-            print(f"Informations extraites: {new_info}")  # Debug
+            # Vérifier si c'est la première question
+            if not state:
+                if 'per' in question.lower():
+                    state['objectifs'] = 'préparation retraite'
             
-            # Mettre à jour l'état avec les nouvelles informations
+            # Analyser le message
+            new_info = self.analyze_user_message(question, state)
+            
+            # Mettre à jour l'état
             state.update(new_info)
-            print(f"Nouvel état: {state}")  # Debug
-            
-            # Sauvegarder l'état mis à jour
             self.conversation_states[conversation_id] = state
             
-            # Générer la réponse appropriée
-            reponse = self.format_response(state)
+            # Mettre à jour Supabase
+            self.update_supabase(state, conversation_id)
             
-            # Si toutes les informations sont collectées, sauvegarder dans Supabase
-            if all(k in state for k in ['name', 'email', 'phone', 'objectifs', 'patrimoine', 'revenus']):
-                self.save_to_supabase(state, conversation_id)
-                
+            # Obtenir la prochaine question
+            response = self.get_next_question(state)
+            
             return {
-                'reponse': reponse,
+                'reponse': response,
                 'conversation_id': conversation_id,
-                'type': 'text' if 'analyse' not in reponse.lower() else 'analysis'
+                'type': 'text' if 'analyse' not in response.lower() else 'analysis'
             }
             
         except Exception as e:
