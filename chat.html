@@ -215,15 +215,18 @@
                 }
         
                 const data = await response.json();
-                console.log("Réponse reçue:", data); // Debug log
+                console.log("Réponse reçue:", data);
         
+                // Mise à jour du conversation_id
                 conversationId = data.conversation_id;
                 
-                // Mise à jour du message selon le type de réponse
-                if (data.reponse) {
-                    updateMessage(loadingId, 'bot', data.reponse);
+                // Gestion de la réponse selon son type
+                if (data.type === 'qcm') {
+                    updateMessage(loadingId, 'bot', data);
+                } else if (data.type === 'preconisation') {
+                    updateMessage(loadingId, 'bot', data);
                 } else {
-                    updateMessage(loadingId, 'bot', "Désolé, je n'ai pas pu générer de réponse.");
+                    updateMessage(loadingId, 'bot', data.reponse);
                 }
         
             } catch (error) {
@@ -389,19 +392,42 @@
             return `<div class="space-y-4">${formattedHtml}</div>`;
         }
         
-        function updateMessage(messageId, sender, text) {
-            const messageDiv = document.getElementById(`message-${messageId}`);
-            if (messageDiv && messageDiv.firstChild && messageDiv.firstChild.firstChild) {
-                const messageContent = messageDiv.firstChild.firstChild;
-                if (sender === 'bot') {
-                    messageContent.innerHTML = formatText(text);
-                    messageContent.className = 'message-animation p-4 max-w-[80%] message-bot text-gray-800';
-                } else {
-                    messageContent.textContent = text;
-                    messageContent.className = 'message-animation p-4 max-w-[80%] message-user text-white';
-                }
-                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        function updateMessage(loadingId, sender, message) {
+            const messageContainer = document.querySelector(`#chat-messages > div:last-child`);
+            if (!messageContainer) {
+                console.error('Container de message non trouvé');
+                return;
             }
+        
+            const messageContent = messageContainer.querySelector(':scope > div > div');
+            if (!messageContent) {
+                console.error('Contenu du message non trouvé');
+                return;
+            }
+        
+            if (sender === 'bot') {
+                if (typeof message === 'object') {
+                    switch(message.type) {
+                        case 'qcm':
+                            messageContent.innerHTML = '';
+                            messageContent.appendChild(createQCMOptions(message));
+                            break;
+                        case 'preconisation':
+                            messageContent.innerHTML = createPreconisation(message);
+                            break;
+                        default:
+                            messageContent.innerHTML = formatText(message.reponse || message);
+                    }
+                } else {
+                    messageContent.innerHTML = formatText(message);
+                }
+                messageContent.className = 'message-animation p-4 max-w-[80%] message-bot text-gray-800';
+            } else {
+                messageContent.textContent = message;
+                messageContent.className = 'message-animation p-4 max-w-[80%] message-user text-white';
+            }
+            
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
         // Fonctions utilitaires
