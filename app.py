@@ -3,6 +3,7 @@ from flask_cors import CORS
 import os
 from chatbot import ChatBot
 import asyncio
+import traceback
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -22,7 +23,11 @@ def run_async(coroutine):
 @app.route('/api/chat', methods=['POST'])
 def chat():
     try:
-        data = request.json
+        # Debug log
+        print("Headers reçus:", dict(request.headers))
+        print("Corps de la requête brut:", request.get_data(as_text=True))
+        
+        data = request.get_json()
         if not data:
             return jsonify({
                 'error': 'Données manquantes',
@@ -30,33 +35,47 @@ def chat():
             }), 400
 
         # Log pour debug
-        print("Requête reçue:", data)
+        print("Données reçues:", data)
         
-        question = data.get('question', '')
-        conversation_id = data.get('conversation_id', '')
+        question = data.get('question', '').strip()
+        conversation_id = data.get('conversation_id', '').strip()
+        
+        # Validation plus souple du conversation_id
+        if not conversation_id:
+            conversation_id = f"conv_{int(time.time())}"
         
         if not question:
             return jsonify({
                 'error': 'Question manquante',
                 'details': 'Aucune question n\'a été fournie'
             }), 400
-            
-        if not conversation_id:
-            return jsonify({
-                'error': 'ID de conversation manquant',
-                'details': 'L\'ID de conversation est requis'
-            }), 400
 
-        # Appel au chatbot et récupération de la réponse de manière synchrone
-        response = run_async(chatbot.repondre_question(question, conversation_id))
-        
-        # Log pour debug
-        print("Réponse générée:", response)
+        # Log avant appel chatbot
+        print(f"Traitement requête - ID: {conversation_id}, Question: {question}")
+
+        # Appel au chatbot
+        try:
+            response = run_async(chatbot.repondre_question(question, conversation_id))
+            print("Réponse chatbot:", response)
+        except Exception as e:
+            print("Erreur chatbot:", str(e))
+            traceback.print_exc()
+            raise
+
+        if not response:
+            return jsonify({
+                'error': 'Réponse vide',
+                'details': 'Le chatbot n\'a pas généré de réponse'
+            }), 500
+
+        # Ajout du conversation_id à la réponse
+        response['conversation_id'] = conversation_id
         
         return jsonify(response)
 
     except Exception as e:
         print(f"Erreur serveur : {str(e)}")
+        traceback.print_exc()
         return jsonify({
             'error': 'Erreur du serveur',
             'details': str(e)
