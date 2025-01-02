@@ -241,6 +241,36 @@ class ChatBot:
 
         except Exception as e:
             print(f"Erreur lors de la sauvegarde du message : {str(e)}")
+
+    def build_acknowledgment(self, extracted_info: dict) -> str:
+        """Construit un accusé de réception naturel des informations reçues"""
+        acknowledgments = []
+        
+        if 'name' in extracted_info:
+            acknowledgments.append(f"Enchantée de faire votre connaissance, {extracted_info['name']}")
+        if 'email' in extracted_info:
+            acknowledgments.append(f"j'ai bien noté votre email")
+        if 'phone' in extracted_info:
+            acknowledgments.append(f"j'ai bien noté votre numéro de téléphone")
+        if 'profession' in extracted_info:
+            acknowledgments.append(f"je note que vous êtes {extracted_info['profession']}")
+        if 'age' in extracted_info:
+            acknowledgments.append(f"vous avez {extracted_info['age']} ans")
+        if 'situation_familiale' in extracted_info:
+            acknowledgments.append(f"vous êtes {extracted_info['situation_familiale']}")
+        if 'revenus' in extracted_info:
+            acknowledgments.append(f"avec des revenus annuels de {extracted_info['revenus']}€")
+        if 'patrimoine' in extracted_info:
+            acknowledgments.append(f"et un patrimoine d'environ {extracted_info['patrimoine']}€")
+        if 'objectifs' in extracted_info:
+            objectifs = extracted_info['objectifs']
+            if isinstance(objectifs, list):
+                objectifs_str = ", ".join(objectifs)
+                acknowledgments.append(f"vos objectifs sont : {objectifs_str}")
+        
+        if acknowledgments:
+            response = ". ".join(acknowledgments) + "."
+            return response[0].upper() + response[1:]
     
     async def get_next_question(self, conversation: dict) -> tuple:
         """Détermine la prochaine question à poser en fonction des informations déjà collectées"""
@@ -280,24 +310,6 @@ class ChatBot:
             response += f"\n\n{next_question}" if response else next_question
             
             return response
-
-    def build_acknowledgment(self, extracted_info: dict) -> str:
-        """Construit un accusé de réception naturel des informations reçues"""
-        acknowledgments = []
-        
-        if 'name' in extracted_info:
-            acknowledgments.append(f"Enchantée de faire votre connaissance, {extracted_info['name']}")
-        if 'profession' in extracted_info:
-            acknowledgments.append(f"je note que vous êtes {extracted_info['profession']}")
-        if 'age' in extracted_info:
-            acknowledgments.append(f"vous avez {extracted_info['age']} ans")
-        if 'revenus' in extracted_info:
-            acknowledgments.append(f"avec des revenus annuels de {extracted_info['revenus']}€")
-        
-        if acknowledgments:
-            response = ". ".join(acknowledgments) + "."
-            return response[0].upper() + response[1:]
-        return ""
 
     async def generate_final_analysis(self, info_collected: dict) -> str:
         """Génère une analyse personnalisée basée sur toutes les informations collectées"""
