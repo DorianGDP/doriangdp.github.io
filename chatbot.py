@@ -5,6 +5,31 @@ import json
 import re
 from typing import Optional
 
+class ConversationStorage:
+    def __init__(self):
+        self._conversations = {}
+
+    def get_conversation(self, conversation_id: str) -> dict:
+        if conversation_id not in self._conversations:
+            self._conversations[conversation_id] = {
+                'state': {},
+                'messages': []
+            }
+        return self._conversations[conversation_id]
+
+    def update_state(self, conversation_id: str, new_info: dict):
+        if conversation_id not in self._conversations:
+            self._conversations[conversation_id] = {'state': {}, 'messages': []}
+        self._conversations[conversation_id]['state'].update(new_info)
+
+    def get_state(self, conversation_id: str) -> dict:
+        return self._conversations.get(conversation_id, {}).get('state', {})
+
+    def add_message(self, conversation_id: str, message: dict):
+        if conversation_id not in self._conversations:
+            self._conversations[conversation_id] = {'state': {}, 'messages': []}
+        self._conversations[conversation_id]['messages'].append(message)
+
 class ChatBot:
     # Questions initiales plus naturelles
     INITIAL_GREETINGS = [
@@ -107,17 +132,9 @@ class ChatBot:
         4. Proposition de contact personnalisé"""
 
     def __init__(self, api_key: str):
-        """Initialise le chatbot avec les clés API nécessaires"""
-        openai.api_key = api_key
+        self.api_key = api_key
+        self.storage = ConversationStorage()
         
-        # Initialisation de Supabase
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_KEY")
-        self.supabase: Client = create_client(supabase_url, supabase_key)
-        
-        # État de la conversation
-        self.conversation_states = {}
-
     def extract_number(self, text: str) -> float:
         """Extrait un nombre d'une chaîne de caractères"""
         try:
@@ -138,20 +155,32 @@ class ChatBot:
             return 0.0
     
     def analyze_user_message(self, message: str, current_state: dict) -> dict:
-        """Analyse le message utilisateur pour en extraire les informations pertinentes"""
+        """Analyse le message pour en extraire les informations"""
         info = {}
         
-        # Analyse des noms/prénoms si pas encore connus
+        # Si nous n'avons pas encore le nom
         if not current_state.get('name'):
             name_match = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', message)
             if name_match:
                 info['name'] = ' '.join(name_match)
-        
-        # Analyse des emails si pas encore connus
+                print(f"Nom trouvé : {info['name']}")
+
+        # Si nous n'avons pas encore l'email
         if not current_state.get('email'):
             email_match = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', message)
             if email_match:
                 info['email'] = email_match[0]
+                print(f"Email trouvé : {info['email']}")
+
+        # Si nous n'avons pas encore le patrimoine
+        if not current_state.get('patrimoine'):
+            if any(word in message.lower() for word in ['euro', '€', 'euros']):
+                numbers = re.findall(r'\d+(?:\s*\d*)*(?:\s*[kKmM])?', message)
+                if numbers:
+                    montant = self.extract_number(message)
+                    if montant > 0:
+                        info['patrimoine'] = montant
+                        print(f"Patrimoine trouvé : {info['patrimoine']}")
         
         # Analyse des montants si pertinent
         if 'patrimoine' in message.lower() or not current_state.get('patrimoine'):
@@ -397,26 +426,34 @@ class ChatBot:
     def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Point d'entrée principal pour traiter une question"""
         try:
-            # Initialiser ou récupérer l'état
-            state = self.conversation_states.get(conversation_id, {})
+            # Récupérer l'état actuel de la conversation
+            state = self.storage.get_state(conversation_id)
             
-            # Vérifier si c'est la première question
-            if not state:
-                if 'per' in question.lower():
-                    state['objectifs'] = 'préparation retraite'
+            # Enregistrer la question
+            self.storage.add_message(conversation_id, {
+                'type': 'user',
+                'content': question
+            })
             
-            # Analyser le message
+            # Analyser la question pour en extraire les informations
             new_info = self.analyze_user_message(question, state)
+            print(f"Nouvelles informations extraites: {new_info}")
             
-            # Mettre à jour l'état
-            state.update(new_info)
-            self.conversation_states[conversation_id] = state
+            # Mettre à jour l'état avec les nouvelles informations
+            if new_info:
+                self.storage.update_state(conversation_id, new_info)
+                # Mise à jour immédiate dans Supabase
+                await self.update_supabase(self.storage.get_state(conversation_id), conversation_id)
             
-            # Mettre à jour Supabase
-            self.update_supabase(state, conversation_id)
+            # Déterminer la prochaine question
+            current_state = self.storage.get_state(conversation_id)
+            response = self.get_next_question(current_state)
             
-            # Obtenir la prochaine question
-            response = self.get_next_question(state)
+            # Enregistrer la réponse
+            self.storage.add_message(conversation_id, {
+                'type': 'bot',
+                'content': response
+            })
             
             return {
                 'reponse': response,
