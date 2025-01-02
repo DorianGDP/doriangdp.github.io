@@ -270,25 +270,39 @@ class ChatBot:
                 
         return None, None
 
-    async def get_next_response(self, conversation: dict, extracted_info: dict) -> str:
+async def get_next_response(self, conversation: dict, extracted_info: dict) -> str:
         try:
             info_collected = conversation.get('info_collected', {})
             messages_history = conversation.get('messages', [])
             
-            if len(messages_history) <= 1:
+            # Si c'est le premier message et qu'aucune info n'a été extraite
+            if len(messages_history) <= 1 and not extracted_info:
                 return "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour vous apporter les meilleures recommandations, j'aimerais mieux vous connaître. Pour commencer, puis-je connaître votre nom et prénom ?"
-
-            next_field, next_question = await self.get_next_question(conversation)
 
             response = ""
             
+            # Si des informations ont été extraites, on les confirme
             if extracted_info:
                 response = self.build_acknowledgment(extracted_info)
+                
+            # On récupère la prochaine question à poser
+            next_field, next_question = await self.get_next_question(conversation)
 
+            # Si toutes les informations sont collectées
             if not next_field:
                 return await self.generate_final_analysis(info_collected)
 
-            response += f"\n\n{next_question}" if response else next_question
+            # On ajoute la prochaine question si on a extrait des infos
+            if extracted_info:
+                response += f"\n\n{next_question}"
+            # Sinon on repose la question actuelle
+            else:
+                current_field = None
+                for question_info in self.question_sequence:
+                    if question_info['field'] not in info_collected:
+                        current_field = question_info
+                        break
+                response = current_field['question'] if current_field else next_question
             
             return response
         except Exception as e:
