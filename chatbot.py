@@ -88,42 +88,83 @@ class ChatBot:
             }
         ]
 
-    async def extract_info_from_message(self, message: str) -> dict:
-        """Utilise GPT pour extraire les informations du message"""
+    async def extract_info_from_message(self, message: str, initial_query: str = None) -> dict:
+        """Extraction améliorée des informations avec contexte"""
         try:
-            prompt = f"""Analyse ce message et extrait les informations suivantes au format JSON :
-            - name: prénom et/ou nom mentionnés (retourne la valeur exacte mentionnée)
-            - email: adresse email si mentionnée
-            - phone: numéro de téléphone si mentionné
-            - profession: métier ou activité professionnelle
-            - age: âge mentionné (en nombre)
-            - situation_familiale: situation familiale mentionnée
-            - revenus: montant des revenus annuels (en nombre)
-            - patrimoine: montant du patrimoine (en nombre)
-            - objectifs: objectifs patrimoniaux mentionnés (liste)
-    
-            Message : {message}
-    
-            Important : Pour le nom, retourne exactement ce qui est mentionné, même si c'est juste un nom ou un prénom.
-            Si le message contient uniquement un nom/prénom, assure-toi de le capturer.
+            system_prompt = """Tu es un expert en analyse de texte spécialisé dans l'extraction d'informations personnelles.
+            Tu dois extraire avec précision les informations tout en comprenant le contexte de la conversation."""
             
-            Format attendu : {{"name": "John Doe"}} ou {{"name": "John"}} selon ce qui est mentionné.
-            Pour les montants, renvoie uniquement les nombres (sans € ou euros)
-            """
-    
+            user_prompt = f"""Analyse ce message et extrait les informations au format JSON :
+            - name: prénom et nom (exactement comme mentionnés)
+            - email: adresse email
+            - phone: numéro de téléphone
+            - profession: métier
+            - age: âge (nombre)
+            - situation_familiale: situation familiale
+            - revenus: revenus annuels (nombre uniquement)
+            - patrimoine: montant du patrimoine (nombre uniquement)
+            - objectifs: liste des objectifs patrimoniaux
+            {f'- initial_query: "{initial_query}"' if initial_query else ''}
+            
+            Message: {message}
+            
+            Notes importantes:
+            1. Extrait uniquement les informations explicitement mentionnées
+            2. Pour les noms, conserve l'ordre exact (prénom nom ou nom prénom)
+            3. Ne fait pas d'hypothèses sur les informations manquantes
+            4. Considère les variations d'écriture (ex: "je m'appelle", "je suis", etc.)"""
+
             response = self.client.chat.completions.create(
-                model="gpt-4o",  
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Tu es un assistant spécialisé dans l'extraction précise d'informations de messages."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1  # Réduit pour plus de précision
+                temperature=0.1
             )
             
-            return json.loads(response.choices[0].message.content)
+            extracted_info = json.loads(response.choices[0].message.content)
+            
+            # Post-traitement des informations extraites
+            if 'name' in extracted_info and isinstance(extracted_info['name'], str):
+                extracted_info['name'] = extracted_info['name'].strip()
+            
+            return extracted_info
+
         except Exception as e:
-            print(f"Erreur lors de l'extraction d'informations : {str(e)}")
+            print(f"Erreur d'extraction: {str(e)}")
             return {}
+
+        def generate_contextual_response(self, initial_query: str, extracted_info: dict, 
+                                   missing_info: list) -> str:
+        """Génère une réponse contextuelle basée sur la question initiale et les informations manquantes"""
+        try:
+            prompt = f"""En tant que conseiller en gestion de patrimoine, génère une réponse naturelle qui:
+            1. Accuse réception de la question initiale: "{initial_query}"
+            2. Reconnaît les informations déjà fournies: {json.dumps(extracted_info)}
+            3. Demande la prochaine information manquante: {missing_info[0] if missing_info else None}
+            4. Maintient un ton professionnel mais chaleureux
+            
+            La réponse doit:
+            - Être naturelle et conversationnelle
+            - Expliquer pourquoi l'information est nécessaire
+            - Éviter les formulations robotiques
+            - Faire le lien avec la question initiale du client"""
+
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine empathique et professionnelle."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            print(f"Erreur de génération de réponse: {str(e)}")
+            return "Je suis désolée, pourriez-vous reformuler votre demande ?"
 
     def build_acknowledgment(self, extracted_info: dict) -> str:
         """Construit un accusé de réception naturel des informations reçues"""
@@ -360,40 +401,28 @@ class ChatBot:
             return "Je suis désolée, je rencontre des difficultés pour générer l'analyse finale. Pouvons-nous reprendre notre conversation ?"
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
-        """Point d'entrée principal pour traiter une question"""
+        """Traitement principal des questions avec gestion du contexte"""
         try:
-            # Vérification des paramètres
-            if not isinstance(question, str) or not question.strip():
-                raise ValueError("La question ne peut pas être vide")
-                
-            if not isinstance(conversation_id, str) or not conversation_id.strip():
-                conversation_id = f"conv_{time.time()}"
-    
-            # Récupérer ou créer la conversation
-            conversation = self.storage.get_conversation(conversation_id)
+            conversation = self.get_conversation(conversation_id)
+            initial_query = conversation.get('initial_query', question)
             
-            # Si c'est le premier message et que c'est un "bonjour"
-            if len(conversation.get('messages', [])) == 0 and re.match(r'^(bonjour|salut|bonsoir|hello|hi|hey)\s*$', question.lower().strip()):
-                response = "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Je suis là pour vous accompagner dans vos projets patrimoniaux. Pour commencer, puis-je connaître votre nom et prénom ?"
-            else:
-                # Extraire et sauvegarder les informations
-                extracted_info = await self.extract_info_from_message(question)
-                if extracted_info:
-                    self.storage.update_info(conversation_id, extracted_info)
-                    await self.create_or_update_supabase(conversation_id, extracted_info)
-                
-                # Générer la réponse
-                response = await self.get_next_response(conversation, extracted_info)
+            # Extraction des informations
+            extracted_info = await self.extract_info_from_message(
+                question, 
+                initial_query if initial_query != question else None
+            )
             
-            # Sauvegarder les messages
-            user_message = {"role": "user", "content": question}
-            assistant_message = {"role": "assistant", "content": response}
+            # Mise à jour de la base de données
+            if extracted_info:
+                await self.update_database(conversation_id, extracted_info)
             
-            self.storage.add_message(conversation_id, user_message)
-            self.storage.add_message(conversation_id, assistant_message)
-            
-            await self.save_message(conversation_id, user_message)
-            await self.save_message(conversation_id, assistant_message)
+            # Génération de la réponse contextuelle
+            missing_info = self.get_missing_info(conversation_id)
+            response = self.generate_contextual_response(
+                initial_query,
+                extracted_info,
+                missing_info
+            )
             
             return {
                 'reponse': response,
@@ -402,20 +431,9 @@ class ChatBot:
             }
             
         except Exception as e:
-            print(f"Erreur critique dans repondre_question: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            
-            error_message = "Je suis désolée, je rencontre des difficultés techniques. "
-            if "InvalidRequestError" in str(type(e)):
-                error_message += "Pourriez-vous reformuler votre question de manière plus claire ?"
-            elif "APIError" in str(type(e)):
-                error_message += "Le service est momentanément indisponible. Pouvez-vous réessayer dans quelques instants ?"
-            else:
-                error_message += "Pouvons-nous reprendre notre conversation ?"
-                
+            print(f"Erreur: {str(e)}")
             return {
-                'reponse': error_message,
+                'reponse': "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?",
                 'conversation_id': conversation_id,
                 'type': 'text',
                 'error': True
