@@ -92,7 +92,7 @@ class ChatBot:
         """Utilise GPT pour extraire les informations du message"""
         try:
             prompt = f"""Analyse ce message et extrait les informations suivantes au format JSON :
-            - name: prénom et/ou nom mentionnés
+            - name: prénom et/ou nom mentionnés (retourne la valeur exacte mentionnée)
             - email: adresse email si mentionnée
             - phone: numéro de téléphone si mentionné
             - profession: métier ou activité professionnelle
@@ -101,21 +101,23 @@ class ChatBot:
             - revenus: montant des revenus annuels (en nombre)
             - patrimoine: montant du patrimoine (en nombre)
             - objectifs: objectifs patrimoniaux mentionnés (liste)
-
+    
             Message : {message}
-
-            Renvoie uniquement les informations explicitement mentionnées.
-            Format souhaité : {{"clé": "valeur"}}
+    
+            Important : Pour le nom, retourne exactement ce qui est mentionné, même si c'est juste un nom ou un prénom.
+            Si le message contient uniquement un nom/prénom, assure-toi de le capturer.
+            
+            Format attendu : {{"name": "John Doe"}} ou {{"name": "John"}} selon ce qui est mentionné.
             Pour les montants, renvoie uniquement les nombres (sans € ou euros)
             """
-
+    
             response = self.client.chat.completions.create(
-                model="gpt-4o",  # Utilisez le modèle le plus approprié
+                model="gpt-4o",  
                 messages=[
-                    {"role": "system", "content": "Tu es un assistant spécialisé dans l'extraction d'informations de messages."},
+                    {"role": "system", "content": "Tu es un assistant spécialisé dans l'extraction précise d'informations de messages."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3
+                temperature=0.1  # Réduit pour plus de précision
             )
             
             return json.loads(response.choices[0].message.content)
@@ -366,33 +368,31 @@ class ChatBot:
                 
             if not isinstance(conversation_id, str) or not conversation_id.strip():
                 conversation_id = f"conv_{time.time()}"
-
+    
             # Récupérer ou créer la conversation
             conversation = self.storage.get_conversation(conversation_id)
             
-            # Ajouter le message utilisateur
-            user_message = {
-                "role": "user",
-                "content": question
-            }
+            # Si c'est le premier message et que c'est un "bonjour"
+            if len(conversation.get('messages', [])) == 0 and re.match(r'^(bonjour|salut|bonsoir|hello|hi|hey)\s*$', question.lower().strip()):
+                response = "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Je suis là pour vous accompagner dans vos projets patrimoniaux. Pour commencer, puis-je connaître votre nom et prénom ?"
+            else:
+                # Extraire et sauvegarder les informations
+                extracted_info = await self.extract_info_from_message(question)
+                if extracted_info:
+                    self.storage.update_info(conversation_id, extracted_info)
+                    await self.create_or_update_supabase(conversation_id, extracted_info)
+                
+                # Générer la réponse
+                response = await self.get_next_response(conversation, extracted_info)
+            
+            # Sauvegarder les messages
+            user_message = {"role": "user", "content": question}
+            assistant_message = {"role": "assistant", "content": response}
+            
             self.storage.add_message(conversation_id, user_message)
-            await self.save_message(conversation_id, user_message)
-            
-            # Extraire et sauvegarder les informations
-            extracted_info = await self.extract_info_from_message(question)
-            if extracted_info:
-                self.storage.update_info(conversation_id, extracted_info)
-                await self.create_or_update_supabase(conversation_id, extracted_info)
-            
-            # Générer la réponse
-            response = await self.get_next_response(conversation, extracted_info)
-            
-            # Sauvegarder la réponse
-            assistant_message = {
-                "role": "assistant",
-                "content": response
-            }
             self.storage.add_message(conversation_id, assistant_message)
+            
+            await self.save_message(conversation_id, user_message)
             await self.save_message(conversation_id, assistant_message)
             
             return {
