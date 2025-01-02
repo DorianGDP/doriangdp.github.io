@@ -281,7 +281,7 @@ class ChatBot:
             
             return response
 
-    async def build_acknowledgment(self, extracted_info: dict) -> str:
+    def build_acknowledgment(self, extracted_info: dict) -> str:
         """Construit un accusé de réception naturel des informations reçues"""
         acknowledgments = []
         
