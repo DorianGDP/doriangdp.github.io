@@ -275,36 +275,46 @@ class ChatBot:
             info_collected = conversation.get('info_collected', {})
             messages_history = conversation.get('messages', [])
             
-            # Si c'est le premier message et qu'aucune info n'a été extraite
-            if len(messages_history) <= 1 and not extracted_info:
-                return "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour vous apporter les meilleures recommandations, j'aimerais mieux vous connaître. Pour commencer, puis-je connaître votre nom et prénom ?"
-
+            # Si des informations ont été extraites, on les confirme d'abord
             response = ""
-            
-            # Si des informations ont été extraites, on les confirme
             if extracted_info:
                 response = self.build_acknowledgment(extracted_info)
                 
+                # On met à jour info_collected avec les nouvelles informations
+                info_collected.update(extracted_info)
+                conversation['info_collected'] = info_collected
+            
             # On récupère la prochaine question à poser
             next_field, next_question = await self.get_next_question(conversation)
-
+            
             # Si toutes les informations sont collectées
             if not next_field:
                 return await self.generate_final_analysis(info_collected)
-
-            # On ajoute la prochaine question si on a extrait des infos
-            if extracted_info:
+            
+            # Si on a collecté des infos, on ajoute la prochaine question
+            if response:
                 response += f"\n\n{next_question}"
-            # Sinon on repose la question actuelle
             else:
-                current_field = None
-                for question_info in self.question_sequence:
-                    if question_info['field'] not in info_collected:
-                        current_field = question_info
-                        break
-                response = current_field['question'] if current_field else next_question
+                # Si on n'a pas extrait d'infos, on repose la question actuelle
+                # ou on passe à la suivante si c'est le premier message
+                if len(messages_history) <= 1:
+                    response = next_question
+                else:
+                    # On retrouve la question actuelle
+                    current_field = None
+                    for question_info in self.question_sequence:
+                        if question_info['field'] not in info_collected:
+                            current_field = question_info
+                            break
+                    
+                    # On reformule gentiment la demande
+                    if current_field:
+                        response = f"Je n'ai pas bien saisi votre réponse. {current_field['question']}"
+                    else:
+                        response = next_question
             
             return response
+            
         except Exception as e:
             print(f"Erreur dans get_next_response: {str(e)}")
             raise
