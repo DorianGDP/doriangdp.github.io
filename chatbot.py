@@ -7,24 +7,35 @@ import time
 from supabase import create_client
 
 class ChatBot:
-    # Questions de qualification pour différentes étapes
+    # Questions initiales plus naturelles
+    INITIAL_GREETINGS = [
+        "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Comment puis-je vous aider aujourd'hui ?",
+        "Bonjour ! Je suis Emma, ravie de vous rencontrer. En quoi puis-je vous être utile aujourd'hui ?",
+        "Bonjour ! Je m'appelle Emma et je suis là pour vous accompagner dans vos projets patrimoniaux. Que puis-je faire pour vous ?"
+    ]
+
+    # Questions de qualification plus naturelles
     QUALIFICATION_QUESTIONS = {
-        'name': [
-            "Je vois que vous avez des questions intéressantes sur la gestion de patrimoine. Pour mieux suivre notre échange, puis-je connaître votre nom ?",
-            "Pour personnaliser notre conversation et garder une trace de nos conseils, comment puis-je vous appeler ?"
-        ],
-        'contact': [
-            "Je peux vous envoyer dès maintenant un premier diagnostic gratuit de votre situation. Sur quelle adresse email puis-je vous l'envoyer ?",
-            "Pour que vous puissiez retrouver nos échanges et mes recommandations initiales, quelle est votre adresse email ?"
-        ],
-        'profession': [
-            "Votre situation professionnelle va beaucoup influencer les stratégies possibles. Quelle est votre activité actuelle ?",
-            "Pour identifier les meilleures opportunités fiscales, quelle est votre profession ?"
-        ],
-        'patrimoine': [
-            "Pour vous orienter vers les solutions les plus adaptées, dans quelle fourchette se situe votre patrimoine global ?",
-            "Afin de vous conseiller les meilleurs investissements, quel est approximativement votre niveau de patrimoine ?"
-        ]
+        'name': {
+            'natural_triggers': [
+                "Je serais ravie de vous aider. Pour personnaliser nos échanges, puis-je connaître votre prénom ?",
+                "Pour mieux vous accompagner dans votre projet, comment souhaitez-vous que je vous appelle ?",
+                "Avant d'aller plus loin dans notre discussion, pourriez-vous me dire comment vous vous appelez ?"
+            ],
+            'followup': [
+                "Enchantée {name} ! Parlons de votre projet. Que souhaitez-vous réaliser ?",
+                "Ravi de vous rencontrer {name} ! Dites-moi ce qui vous préoccupe en matière de patrimoine."
+            ]
+        },
+        'contact': {
+            'natural_triggers': [
+                "D'ailleurs {name}, pour pouvoir vous envoyer une analyse détaillée de votre situation, sur quelle adresse email puis-je vous la faire parvenir ?",
+                "{name}, afin de pouvoir vous transmettre des informations personnalisées, quelle est votre adresse email ?"
+            ],
+            'followup': [
+                "Parfait ! Je note votre email. Pour affiner mon analyse, j'aurais besoin d'en savoir un peu plus sur votre situation."
+            ]
+        }
     }
     QCM_QUESTIONS = {
         'objectifs': {
@@ -285,58 +296,51 @@ class ChatBot:
 
     def generer_reponse(self, question, conversation_id):
         try:
-            # Extraire les infos de la question actuelle
+            # Extraire les infos de la question
             new_info = self.extract_lead_info(question)
+            lead_data, history = self.track_lead_info(conversation_id, new_info)
             
-            # Récupérer l'état actuel avec le progrès QCM
-            lead_data, history, qcm_progress = self.track_lead_info(conversation_id, new_info)
+            # Si premier message
+            if not history:
+                return {
+                    'reponse': np.random.choice(self.INITIAL_GREETINGS),
+                    'conversation_id': conversation_id,
+                    'type': 'text'
+                }
+
+            # Construire le contexte pour GPT
+            context = self.build_conversation_context(lead_data, history)
             
-            # Obtenir la prochaine question
-            next_question = self.get_next_question(lead_data, qcm_progress)
-            
-            context = f"""
-            Informations client actuelles :
-            {json.dumps(lead_data, indent=2)}
-            
-            Progression QCM :
-            {json.dumps(qcm_progress, indent=2)}
-            
-            Prochaine question :
-            {json.dumps(next_question, indent=2) if next_question else "Aucune - Tout est collecté"}
-            
-            Historique récent :
-            {json.dumps(history[-3:], indent=2) if history else "Aucun"}
-            """
-            
-            # Correction du modèle GPT
+            # Générer la réponse avec GPT-4
             response = self.client.chat.completions.create(
-                model="gpt-4o",  # ou "gpt-4" si vous avez l'accès
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": self.SYSTEM_PROMPT},
                     {"role": "user", "content": f"Question: {question}\nContexte: {context}"}
                 ],
                 temperature=0.7
             )
-    
+
             reponse = response.choices[0].message.content
             
-            # Log de succès pour le debugging
-            print(f"Réponse générée avec succès: {reponse[:100]}...")
-            
-            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
+            # Si toutes les infos sont collectées, générer une préconisation
+            if self.is_lead_complete(lead_data):
                 preconisation = self.generer_preconisation(lead_data)
                 reponse += f"\n\n{preconisation}"
-                lead_data['preconisation'] = preconisation
-                self.update_lead_data(conversation_id, lead_data)
-            
-            return reponse
-    
+                
+            return {
+                'reponse': reponse,
+                'conversation_id': conversation_id,
+                'type': 'text'
+            }
+
         except Exception as e:
-            # Log détaillé de l'erreur
             print(f"Erreur dans generer_reponse: {str(e)}")
-            import traceback
-            print(f"Traceback complet: {traceback.format_exc()}")
-            return "Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?"
+            return {
+                'reponse': "Désolé, pourriez-vous reformuler votre question ?",
+                'conversation_id': conversation_id,
+                'type': 'text'
+            }
 
 
     def valider_reponse_qcm(self, question_type, reponse):
