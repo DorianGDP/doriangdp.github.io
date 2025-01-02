@@ -197,7 +197,14 @@
             const loadingId = appendMessage('bot', "En train de réfléchir...");
         
             try {
-                const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
+                // Log pour debug
+                console.log("Envoi de la requête:", {
+                    question,
+                    conversation_id: conversationId,
+                    is_qcm_response: isQCMResponse
+                });
+        
+                const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -205,33 +212,33 @@
                     },
                     body: JSON.stringify({ 
                         question,
-                        conversation_id: conversationId,
+                        conversation_id: conversationId || `conv_${Date.now()}`,
                         is_qcm_response: isQCMResponse
                     })
                 });
         
                 if (!response.ok) {
-                    throw new Error(`Erreur HTTP: ${response.status}`);
+                    const errorData = await response.json();
+                    console.error('Erreur serveur:', errorData);
+                    throw new Error(`Erreur HTTP: ${response.status}. ${errorData.details || ''}`);
                 }
         
                 const data = await response.json();
                 console.log("Réponse reçue:", data);
         
-                // Mise à jour du conversation_id
-                conversationId = data.conversation_id;
-                
-                // Gestion de la réponse selon son type
-                if (data.type === 'qcm') {
-                    updateMessage(loadingId, 'bot', data);
-                } else if (data.type === 'preconisation') {
-                    updateMessage(loadingId, 'bot', data);
-                } else {
-                    updateMessage(loadingId, 'bot', data.reponse);
+                // Mise à jour du conversation_id si pas encore défini
+                if (!conversationId) {
+                    conversationId = data.conversation_id;
                 }
+                
+                // Mise à jour du message
+                updateMessage(loadingId, 'bot', data.reponse);
         
             } catch (error) {
                 console.error('Erreur:', error);
-                updateMessage(loadingId, 'bot', 
+                updateMessage(
+                    loadingId, 
+                    'bot',
                     "Le service est momentanément indisponible. Veuillez réessayer dans quelques instants."
                 );
             } finally {
