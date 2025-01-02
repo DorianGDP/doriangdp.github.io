@@ -2,10 +2,13 @@ from openai import OpenAI
 from supabase import create_client
 import os
 import json
-import re
-import time
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Optional, Dict, Any, Tuple, List
+import random  # Ajout de l'import random qui était manquant
+
+# Import des classes définies précédemment
+from .conversation_storage import ConversationStorage
+from .info_collector import InfoCollector
 
 class ConversationStorage:
     """Gère le stockage des conversations en mémoire"""
@@ -13,108 +16,164 @@ class ConversationStorage:
         self._conversations = {}
 
     def get_conversation(self, conversation_id: str) -> dict:
+        """Récupère ou crée une nouvelle conversation"""
         if conversation_id not in self._conversations:
             self._conversations[conversation_id] = {
-                'state': {},
+                'initial_query': None,
                 'messages': [],
                 'info_collected': {},
-                'lead_id': None  # Ajout pour suivre l'ID du lead
+                'lead_id': None
             }
         return self._conversations[conversation_id]
 
     def add_message(self, conversation_id: str, message: dict):
+        """Ajoute un message à la conversation"""
         conv = self.get_conversation(conversation_id)
         conv['messages'].append(message)
 
     def update_info(self, conversation_id: str, new_info: dict):
+        """Met à jour les informations collectées"""
         conv = self.get_conversation(conversation_id)
         conv['info_collected'].update(new_info)
 
-    def set_lead_id(self, conversation_id: str, lead_id: str):
+    def set_initial_query(self, conversation_id: str, query: str):
+        """Définit la question initiale de la conversation"""
         conv = self.get_conversation(conversation_id)
-        conv['lead_id'] = lead_id
+        if not conv['initial_query']:
+            conv['initial_query'] = query
 
+    def get_collected_info(self, conversation_id: str) -> dict:
+        """Récupère les informations collectées"""
+        conv = self.get_conversation(conversation_id)
+        return conv.get('info_collected', {})
+
+class InfoCollector:
+    """Gère la séquence de collecte d'informations"""
+    def __init__(self):
+        self.info_sequence = [
+            {
+                'field': 'name',
+                'required': True,
+                'questions': [
+                    "Pour mieux vous accompagner dans votre projet {}, puis-je avoir votre nom ?",
+                    "Pour personnaliser mes conseils concernant {}, comment dois-je vous appeler ?",
+                    "Afin de vous proposer les meilleures solutions pour {}, quel est votre nom ?"
+                ]
+            },
+            {
+                'field': 'contact',
+                'required': True,
+                'questions': [
+                    "Pour pouvoir vous recontacter avec des informations détaillées sur {}, quel est votre email ou téléphone ?",
+                    "Afin d'approfondir notre discussion sur {}, quelle est la meilleure façon de vous joindre ?",
+                    "Pour vous envoyer une analyse personnalisée concernant {}, comment puis-je vous contacter ?"
+                ]
+            },
+            {
+                'field': 'age',
+                'required': True,
+                'questions': [
+                    "L'âge est un facteur important pour optimiser {}. Quel âge avez-vous ?",
+                    "Pour adapter au mieux la stratégie concernant {}, pouvez-vous me dire votre âge ?",
+                    "Votre âge nous permettra de mieux personnaliser les solutions pour {}. Quel est-il ?"
+                ]
+            },
+            {
+                'field': 'situation_familiale',
+                'required': True,
+                'questions': [
+                    "Votre situation familiale peut influencer les choix concernant {}. Êtes-vous marié(e), en couple, célibataire ?",
+                    "Pour optimiser {} en fonction de votre situation, êtes-vous en couple ou célibataire ?",
+                    "Quelle est votre situation familiale ? Cela nous aidera à mieux adapter les solutions pour {}"
+                ]
+            },
+            {
+                'field': 'profession',
+                'required': True,
+                'questions': [
+                    "Votre profession peut ouvrir des opportunités spécifiques pour {}. Que faites-vous dans la vie ?",
+                    "Pour identifier les meilleures options concernant {}, quelle est votre profession ?",
+                    "Certaines solutions pour {} dépendent de votre activité professionnelle. Que faites-vous ?"
+                ]
+            },
+            {
+                'field': 'revenus',
+                'required': True,
+                'questions': [
+                    "Pour évaluer les possibilités concernant {}, dans quelle tranche de revenus annuels vous situez-vous ?",
+                    "Afin d'optimiser {} en fonction de vos moyens, quels sont vos revenus annuels approximatifs ?",
+                    "Pour vous proposer des solutions adaptées pour {}, quel est votre niveau de revenus ?"
+                ]
+            },
+            {
+                'field': 'patrimoine',
+                'required': True,
+                'questions': [
+                    "Le patrimoine actuel est important pour optimiser {}. Quel est le montant approximatif de votre patrimoine ?",
+                    "Pour une stratégie efficace concernant {}, pouvez-vous m'indiquer votre patrimoine global ?",
+                    "Afin d'adapter nos recommandations pour {}, quel est votre patrimoine actuel ?"
+                ]
+            }
+        ]
+
+    def get_next_question(self, collected_info: dict, initial_query: str) -> tuple:
+        """Récupère la prochaine question à poser"""
+        import random
+        
+        for info in self.info_sequence:
+            field = info['field']
+            if field not in collected_info or not collected_info[field]:
+                question = random.choice(info['questions']).format(initial_query or "votre projet patrimonial")
+                return field, question
+                
+        return None, None
+
+    def is_collection_complete(self, collected_info: dict) -> bool:
+        """Vérifie si toutes les informations requises ont été collectées"""
+        return all(
+            info['field'] in collected_info 
+            for info in self.info_sequence 
+            if info['required']
+        )
 class ChatBot:
     def __init__(self, api_key: str):
         self.client = OpenAI(api_key=api_key)
         self.storage = ConversationStorage()
+        self.info_collector = InfoCollector()
         
         # Initialisation de Supabase
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(supabase_url, supabase_key)
 
-        # Séquence ordonnée des informations à collecter (identique à votre code)
-        self.question_sequence = [
-            {
-                'field': 'name',
-                'question': "Pour commencer, puis-je connaître votre nom et prénom ?",
-                'required': True
-            },
-            {
-                'field': 'contact',
-                'question': "Pour pouvoir vous recontacter et vous proposer les meilleures solutions, pourriez-vous me donner votre email ou numéro de téléphone ?",
-                'required': True
-            },
-            {
-                'field': 'age',
-                'question': "Merci. Pouvez-vous me dire quel âge avez-vous ?",
-                'required': True
-            },
-            {
-                'field': 'situation_familiale',
-                'question': "Quelle est votre situation familiale (célibataire, marié(e), en couple, etc.) ?",
-                'required': True
-            },
-            {
-                'field': 'profession',
-                'question': "Quelle est votre profession actuelle ?",
-                'required': True
-            },
-            {
-                'field': 'revenus',
-                'question': "Pour mieux évaluer votre capacité d'épargne, pourriez-vous m'indiquer vos revenus annuels approximatifs ?",
-                'required': True
-            },
-            {
-                'field': 'patrimoine',
-                'question': "Quel est le montant approximatif de votre patrimoine actuel (épargne, investissements, immobilier...) ?",
-                'required': True
-            },
-            {
-                'field': 'objectifs',
-                'question': "Quels sont vos principaux objectifs patrimoniaux (épargne, investissement immobilier, préparation retraite, transmission...) ?",
-                'required': True
-            }
-        ]
-
-    async def extract_info_from_message(self, message: str, initial_query: str = None) -> dict:
-        """Extraction améliorée des informations avec contexte"""
+    async def extract_info_from_message(self, message: str) -> dict:
+        """Extrait les informations du message de l'utilisateur"""
         try:
-            system_prompt = """Tu es un expert en analyse de texte spécialisé dans l'extraction d'informations personnelles.
-            Tu dois extraire avec précision les informations tout en comprenant le contexte de la conversation."""
-            
-            user_prompt = f"""Analyse ce message et extrait les informations au format JSON :
+            system_prompt = """Tu es un expert en analyse de texte spécialisé dans l'extraction 
+            d'informations personnelles. Extrait précisément les informations suivantes si elles 
+            sont présentes dans le message."""
+
+            user_prompt = f"""Analyse ce message et extrait uniquement les informations explicitement 
+            mentionnées au format JSON :
             - name: prénom et nom (exactement comme mentionnés)
             - email: adresse email
             - phone: numéro de téléphone
-            - profession: métier
-            - age: âge (nombre)
+            - age: âge (nombre uniquement)
+            - profession: métier actuel
             - situation_familiale: situation familiale
             - revenus: revenus annuels (nombre uniquement)
             - patrimoine: montant du patrimoine (nombre uniquement)
-            - objectifs: liste des objectifs patrimoniaux
-            {f'- initial_query: "{initial_query}"' if initial_query else ''}
-            
-            Message: {message}
-            
-            Notes importantes:
-            1. Extrait uniquement les informations explicitement mentionnées
-            2. Pour les noms, conserve l'ordre exact (prénom nom ou nom prénom)
-            3. Ne fait pas d'hypothèses sur les informations manquantes
-            4. Considère les variations d'écriture (ex: "je m'appelle", "je suis", etc.)"""
 
-            response = self.client.chat.completions.create(
+            Message à analyser: {message}
+
+            Règles importantes:
+            1. N'extrait que les informations explicitement mentionnées
+            2. Pour les noms, conserve l'ordre exact (prénom nom ou nom prénom)
+            3. Ne fait pas d'hypothèses
+            4. Pour les montants, n'extrait que les nombres
+            5. Si une information n'est pas présente, ne pas l'inclure dans le JSON"""
+
+            response = await self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -122,36 +181,35 @@ class ChatBot:
                 ],
                 temperature=0.1
             )
-            
+
             extracted_info = json.loads(response.choices[0].message.content)
-            
-            # Post-traitement des informations extraites
-            if 'name' in extracted_info and isinstance(extracted_info['name'], str):
-                extracted_info['name'] = extracted_info['name'].strip()
-            
-            return extracted_info
+            return {k: v.strip() if isinstance(v, str) else v 
+                   for k, v in extracted_info.items()}
 
         except Exception as e:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
 
-    def generate_contextual_response(self, initial_query: str, extracted_info: dict, 
-                                   missing_info: list) -> str:
-        """Génère une réponse contextuelle basée sur la question initiale et les informations manquantes"""
+    def generate_response(self, collected_info: dict, next_question: str, initial_query: str) -> str:
+        """Génère une réponse contextuelle"""
         try:
-            prompt = f"""En tant que conseiller en gestion de patrimoine, génère une réponse naturelle qui:
-            1. Accuse réception de la question initiale: "{initial_query}"
-            2. Reconnaît les informations déjà fournies: {json.dumps(extracted_info)}
-            3. Demande la prochaine information manquante: {missing_info[0] if missing_info else None}
+            prompt = f"""En tant que conseillère en gestion de patrimoine, génère une réponse naturelle qui:
+            1. Si c'est la première interaction et qu'il y a une question initiale ("{initial_query}"), 
+               commence par y faire référence
+            2. Si des informations ont été collectées, fait un bref accusé de réception
+            3. Pose la question suivante: "{next_question}"
             4. Maintient un ton professionnel mais chaleureux
-            
+
+            Informations déjà collectées:
+            {json.dumps(collected_info, indent=2)}
+
             La réponse doit:
             - Être naturelle et conversationnelle
             - Expliquer pourquoi l'information est nécessaire
-            - Éviter les formulations robotiques
-            - Faire le lien avec la question initiale du client"""
+            - Faire le lien avec le projet du client
+            - Éviter les formulations robotiques"""
 
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine empathique et professionnelle."},
@@ -166,272 +224,152 @@ class ChatBot:
             print(f"Erreur de génération de réponse: {str(e)}")
             return "Je suis désolée, pourriez-vous reformuler votre demande ?"
 
-    def build_acknowledgment(self, extracted_info: dict) -> str:
-        """Construit un accusé de réception naturel des informations reçues"""
-        acknowledgments = []
-        
-        if 'name' in extracted_info:
-            acknowledgments.append(f"Enchantée de faire votre connaissance, {extracted_info['name']}")
-        if 'email' in extracted_info:
-            acknowledgments.append(f"j'ai bien noté votre email")
-        if 'phone' in extracted_info:
-            acknowledgments.append(f"j'ai bien noté votre numéro de téléphone")
-        if 'profession' in extracted_info:
-            acknowledgments.append(f"je note que vous êtes {extracted_info['profession']}")
-        if 'age' in extracted_info:
-            acknowledgments.append(f"vous avez {extracted_info['age']} ans")
-        if 'situation_familiale' in extracted_info:
-            acknowledgments.append(f"vous êtes {extracted_info['situation_familiale']}")
-        if 'revenus' in extracted_info:
-            acknowledgments.append(f"avec des revenus annuels de {extracted_info['revenus']}€")
-        if 'patrimoine' in extracted_info:
-            acknowledgments.append(f"et un patrimoine d'environ {extracted_info['patrimoine']}€")
-        if 'objectifs' in extracted_info:
-            objectifs = extracted_info['objectifs']
-            if isinstance(objectifs, list):
-                objectifs_str = ", ".join(objectifs)
-                acknowledgments.append(f"vos objectifs sont : {objectifs_str}")
-        
-        if acknowledgments:
-            response = ". ".join(acknowledgments) + "."
-            return response[0].upper() + response[1:]
-
-    async def update_supabase_lead(self, lead_id: str, info: dict):
-        try:
-            lead_data = {
-                "updated_at": datetime.utcnow().isoformat(),
-            }
-            
-            if 'name' in info:
-                name_parts = info['name'].split()
-                lead_data["first_name"] = name_parts[0]
-                lead_data["last_name"] = ' '.join(name_parts[1:]) if len(name_parts) > 1 else None
-            
-            if 'email' in info:
-                lead_data["email"] = info['email']
-            if 'phone' in info:
-                lead_data["phone"] = info['phone']
-
-            await self.supabase.table('leads').update(lead_data).eq('id', lead_id).execute()
-
-            patrimoine_data = {
-                "updated_at": datetime.utcnow().isoformat(),
-            }
-
-            if 'objectifs' in info:
-                patrimoine_data["objectifs"] = info['objectifs']
-            if 'patrimoine' in info:
-                patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
-            if 'revenus' in info:
-                patrimoine_data["revenus_annuels"] = float(info['revenus'])
-            if 'age' in info:
-                patrimoine_data["age"] = int(info['age'])
-            if 'profession' in info:
-                patrimoine_data["profession"] = info['profession']
-            if 'situation_familiale' in info:
-                patrimoine_data["situation_familiale"] = info['situation_familiale']
-
-            await self.supabase.table('patrimoine_info').upsert({
-                "lead_id": lead_id,
-                **patrimoine_data
-            }).execute()
-
-        except Exception as e:
-            print(f"Erreur lors de la mise à jour Supabase : {str(e)}")
-            raise
-
-    async def create_or_update_supabase(self, conversation_id: str, info: dict) -> str:
-        try:
-            conv = self.storage.get_conversation(conversation_id)
-            lead_id = conv.get('lead_id')
-
-            if not lead_id:
-                lead_data = {
-                    "status": "nouveau",
-                    "source": "chatbot",
-                    "created_at": datetime.utcnow().isoformat(),
-                }
-                
-                if 'name' in info:
-                    name_parts = info['name'].split()
-                    lead_data["first_name"] = name_parts[0]
-                    lead_data["last_name"] = ' '.join(name_parts[1:]) if len(name_parts) > 1 else None
-                
-                if 'email' in info:
-                    lead_data["email"] = info['email']
-                if 'phone' in info:
-                    lead_data["phone"] = info['phone']
-
-                result = await self.supabase.table('leads').insert(lead_data).execute()
-                lead_id = result.data[0]['id']
-                self.storage.set_lead_id(conversation_id, lead_id)
-
-                await self.supabase.table('conversations').insert({
-                    "lead_id": lead_id,
-                    "conversation_id": conversation_id,
-                    "status": "en_cours",
-                    "created_at": datetime.utcnow().isoformat()
-                }).execute()
-
-            await self.update_supabase_lead(lead_id, info)
-            
-            return lead_id
-
-        except Exception as e:
-            print(f"Erreur lors de la création/mise à jour Supabase : {str(e)}")
-            raise
-
-    async def save_message(self, conversation_id: str, message: dict):
-        try:
-            conv = self.storage.get_conversation(conversation_id)
-            lead_id = conv.get('lead_id')
-            
-            if lead_id:
-                conv_result = await self.supabase.table('conversations')\
-                    .select('id')\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
-                
-                if conv_result.data:
-                    await self.supabase.table('messages').insert({
-                        "conversation_id": conv_result.data[0]['id'],
-                        "message_type": message['role'],
-                        "content": message['content'],
-                        "created_at": datetime.utcnow().isoformat()
-                    }).execute()
-
-        except Exception as e:
-            print(f"Erreur lors de la sauvegarde du message : {str(e)}")
+    async def update_database(self, conversation_id: str, info: dict):
+            """Met à jour la base de données avec les nouvelles informations"""
+            try:
+                # Récupère ou crée un nouvel enregistrement lead
+                conversation = self.storage.get_conversation(conversation_id)
+                lead_id = conversation.get('lead_id')
     
-    async def get_next_question(self, conversation: dict) -> tuple:
-        info_collected = conversation.get('info_collected', {})
-        
-        for question_info in self.question_sequence:
-            field = question_info['field']
-            if field not in info_collected or not info_collected[field]:
-                return field, question_info['question']
-                
-        return None, None
+                if not lead_id:
+                    # Création d'un nouveau lead
+                    lead_data = {
+                        "status": "nouveau",
+                        "source": "chatbot",
+                        "created_at": datetime.utcnow().isoformat()
+                    }
+    
+                    # Ajout des informations de base si disponibles
+                    if 'name' in info:
+                        name_parts = info['name'].split()
+                        lead_data["first_name"] = name_parts[0]
+                        if len(name_parts) > 1:
+                            lead_data["last_name"] = ' '.join(name_parts[1:])
+    
+                    if 'email' in info:
+                        lead_data["email"] = info['email']
+                    if 'phone' in info:
+                        lead_data["phone"] = info['phone']
+    
+                    # Insertion du nouveau lead
+                    result = await self.supabase.table('leads').insert(lead_data).execute()
+                    lead_id = result.data[0]['id']
+                    conversation['lead_id'] = lead_id
+    
+                    # Création de l'enregistrement conversation
+                    await self.supabase.table('conversations').insert({
+                        "lead_id": lead_id,
+                        "conversation_id": conversation_id,
+                        "status": "en_cours"
+                    }).execute()
+    
+                # Mise à jour des informations patrimoniales
+                patrimoine_data = {
+                    "lead_id": lead_id,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+    
+                if 'age' in info:
+                    patrimoine_data["age"] = int(info['age'])
+                if 'profession' in info:
+                    patrimoine_data["profession"] = info['profession']
+                if 'situation_familiale' in info:
+                    patrimoine_data["situation_familiale"] = info['situation_familiale']
+                if 'revenus' in info:
+                    patrimoine_data["revenus_annuels"] = float(info['revenus'])
+                if 'patrimoine' in info:
+                    patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
+    
+                if patrimoine_data:
+                    await self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
+    
+            except Exception as e:
+                print(f"Erreur de mise à jour de la base de données: {str(e)}")
+                raise
 
-    async def get_next_response(self, conversation: dict, extracted_info: dict) -> str:
+    async def generer_analyse_finale(self, info_collected: dict, initial_query: str) -> str:
+        """Génère une analyse finale basée sur toutes les informations collectées"""
         try:
-            info_collected = conversation.get('info_collected', {})
-            messages_history = conversation.get('messages', [])
-            
-            # Si des informations ont été extraites, on les confirme d'abord
-            response = ""
-            if extracted_info:
-                response = self.build_acknowledgment(extracted_info)
-                
-                # On met à jour info_collected avec les nouvelles informations
-                info_collected.update(extracted_info)
-                conversation['info_collected'] = info_collected
-            
-            # On récupère la prochaine question à poser
-            next_field, next_question = await self.get_next_question(conversation)
-            
-            # Si toutes les informations sont collectées
-            if not next_field:
-                return await self.generate_final_analysis(info_collected)
-            
-            # Si on a collecté des infos, on ajoute la prochaine question
-            if response:
-                response += f"\n\n{next_question}"
-            else:
-                # Si on n'a pas extrait d'infos, on repose la question actuelle
-                # ou on passe à la suivante si c'est le premier message
-                if len(messages_history) <= 1:
-                    response = next_question
-                else:
-                    # On retrouve la question actuelle
-                    current_field = None
-                    for question_info in self.question_sequence:
-                        if question_info['field'] not in info_collected:
-                            current_field = question_info
-                            break
-                    
-                    # On reformule gentiment la demande
-                    if current_field:
-                        response = f"Je n'ai pas bien saisi votre réponse. {current_field['question']}"
-                    else:
-                        response = next_question
-            
-            return response
-            
-        except Exception as e:
-            print(f"Erreur dans get_next_response: {str(e)}")
-            raise
+            prompt = f"""En tant que conseillère en gestion de patrimoine, génère une analyse personnalisée 
+            et détaillée basée sur ces informations :
 
-    async def generate_final_analysis(self, info_collected: dict) -> str:
-        try:
-            prompt = f"""
-            En tant que conseillère en gestion de patrimoine, génère une analyse personnalisée
-            basée sur ces informations :
-            
-            Nom: {info_collected.get('name')}
-            Âge: {info_collected.get('age')}
-            Profession: {info_collected.get('profession')}
-            Situation familiale: {info_collected.get('situation_familiale')}
-            Revenus annuels: {info_collected.get('revenus')}€
-            Patrimoine: {info_collected.get('patrimoine')}€
-            Objectifs: {info_collected.get('objectifs')}
-            
+            Question initiale: {initial_query}
+            Informations collectées:
+            {json.dumps(info_collected, indent=2)}
+
             L'analyse doit :
-            1. Être personnalisée et mentionner le nom du client
-            2. Résumer brièvement sa situation
-            3. Proposer 2-3 pistes d'optimisation patrimoniale
-            4. Se terminer par une proposition de rendez-vous personnalisé
-            """
+            1. Commencer par un résumé personnalisé de la situation
+            2. Répondre spécifiquement à la question/demande initiale
+            3. Proposer 2-3 recommandations pertinentes
+            4. Expliquer les avantages de chaque recommandation
+            5. Se terminer par une proposition de rendez-vous personnalisé
+            
+            Garde un ton professionnel mais chaleureux et évite les formulations génériques."""
 
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model="gpt-4o",
-                messages=[{
-                    "role": "system",
-                    "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et empathique."
-                }, {
-                    "role": "user",
-                    "content": prompt
-                }],
+                messages=[
+                    {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et empathique."},
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=0.7
             )
-            
+
             return response.choices[0].message.content
+
         except Exception as e:
-            print(f"Erreur dans generate_final_analysis: {str(e)}")
+            print(f"Erreur dans la génération de l'analyse finale: {str(e)}")
             return "Je suis désolée, je rencontre des difficultés pour générer l'analyse finale. Pouvons-nous reprendre notre conversation ?"
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
-        """Traitement principal des questions avec gestion du contexte"""
+        """Traite la question et génère une réponse appropriée"""
         try:
-            conversation = self.get_conversation(conversation_id)
-            initial_query = conversation.get('initial_query', question)
+            # Récupère ou crée la conversation
+            conversation = self.storage.get_conversation(conversation_id)
             
-            # Extraction des informations
-            extracted_info = await self.extract_info_from_message(
-                question, 
-                initial_query if initial_query != question else None
-            )
+            # Si c'est la première question, l'enregistre comme query initiale
+            self.storage.set_initial_query(conversation_id, question)
+            initial_query = conversation.get('initial_query')
+
+            # Extrait les informations du message
+            extracted_info = await self.extract_info_from_message(question)
             
-            # Mise à jour de la base de données
+            # Met à jour les informations collectées
             if extracted_info:
+                self.storage.update_info(conversation_id, extracted_info)
                 await self.update_database(conversation_id, extracted_info)
-            
-            # Génération de la réponse contextuelle
-            missing_info = self.get_missing_info(conversation_id)
-            response = self.generate_contextual_response(
-                initial_query,
-                extracted_info,
-                missing_info
-            )
-            
+
+            collected_info = self.storage.get_collected_info(conversation_id)
+
+            # Vérifie si toutes les informations nécessaires ont été collectées
+            if self.info_collector.is_collection_complete(collected_info):
+                # Génère une analyse finale
+                response = await self.generer_analyse_finale(collected_info, initial_query)
+            else:
+                # Obtient la prochaine question à poser
+                _, next_question = self.info_collector.get_next_question(collected_info, initial_query)
+                
+                # Génère une réponse contextuelle
+                response = await self.generate_response(collected_info, next_question, initial_query)
+
+            # Enregistre le message dans l'historique
+            self.storage.add_message({
+                'role': 'user',
+                'content': question
+            })
+            self.storage.add_message({
+                'role': 'assistant',
+                'content': response
+            })
+
             return {
                 'reponse': response,
                 'conversation_id': conversation_id,
                 'type': 'text'
             }
-            
+
         except Exception as e:
-            print(f"Erreur: {str(e)}")
+            print(f"Erreur dans repondre_question: {str(e)}")
             return {
                 'reponse': "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?",
                 'conversation_id': conversation_id,
