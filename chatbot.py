@@ -107,364 +107,221 @@ class ChatBot:
         3. Liens vers contenus pertinents
         4. Proposition de contact personnalisé"""
 
-    def __init__(self, api_key):
-        """Initialise le chatbot avec la base de données d'embeddings"""
-        self.client = OpenAI(api_key=api_key)
+    def __init__(self, api_key: str):
+        """Initialise le chatbot avec les clés API nécessaires"""
+        openai.api_key = api_key
         
-        # Configuration Supabase
+        # Initialisation de Supabase
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
-        self.supabase = create_client(supabase_url, supabase_key)
-
-        # Initialisation des données des leads
-        self.lead_data = {}
+        self.supabase: Client = create_client(supabase_url, supabase_key)
         
-        # Configuration des chemins
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        self.index = faiss.read_index(os.path.join(current_dir, 'embeddings_db', 'faiss_index.idx'))
+        # État de la conversation
+        self.conversation_states = {}
         
-        with open(os.path.join(current_dir, 'embeddings_db', 'metadata.json'), 'r', encoding='utf-8') as f:
-            self.metadata = json.load(f)
-            
-        # Initialiser l'historique des conversations
-        self.conversations = {}
+    def validate_email(self, email: str) -> bool:
+        """Valide le format d'une adresse email"""
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return bool(re.match(pattern, email))
         
-    def generer_preconisation(self, lead_data):
-            """Génère une préconisation personnalisée basée sur les informations collectées"""
-            try:
-                response = self.client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[{
-                        "role": "system",
-                        "content": """Génère une préconisation patrimoniale personnalisée.
-                        Format requis:
-                        1. Synthèse de la situation
-                        2. 2-3 recommandations principales
-                        3. Liens vers des articles pertinents du site
-                        4. Proposition de suivi
-    
-                        IMPORTANT: 
-                        - Rester concret et actionnable
-                        - Inclure des liens réels du site
-                        - Maintenir un ton professionnel mais accessible"""
-                    }, {
-                        "role": "user",
-                        "content": f"Informations client:\n{json.dumps(lead_data, indent=2)}"
-                    }],
-                    temperature=0.7,
-                    max_tokens=1000
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                return "Erreur lors de la génération de la préconisation"
-                
-    def get_next_question(self, lead_info, qcm_progress):
-        """Détermine la prochaine question dans la séquence"""
-        # Vérifier d'abord nom et email
-        if not lead_info.get('name'):
-            return np.random.choice(self.QUALIFICATION_QUESTIONS['name'])
-        if not lead_info.get('contact'):
-            return np.random.choice(self.QUALIFICATION_QUESTIONS['contact'])
+    def validate_phone(self, phone: str) -> bool:
+        """Valide le format d'un numéro de téléphone français"""
+        # Nettoyer le numéro
+        phone = re.sub(r'[^\d+]', '', phone)
+        # Vérifier le format (français)
+        pattern = r'^(?:(?:\+|00)33|0)\d{9}$'
+        return bool(re.match(pattern, phone))
         
-        # Ensuite passer aux questions QCM dans l'ordre
-        if not qcm_progress['objectifs']:
-            return self.QCM_QUESTIONS['objectifs']
-        if not qcm_progress['patrimoine']:
-            return self.QCM_QUESTIONS['patrimoine']
-        if not qcm_progress['revenus']:
-            return self.QCM_QUESTIONS['revenus']
-        if not qcm_progress['telephone']:
-            return self.QCM_QUESTIONS['telephone']
-        
-        return None
-
-    def update_lead_data(self, conversation_id, lead_data):
+    def extract_info_from_message(self, message: str) -> Dict:
+        """Extrait les informations pertinentes du message utilisateur"""
         try:
-            existing_lead = self.supabase.table('conversations')\
-                .select('*')\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-    
-            data_to_update = {
-                'lead_data': lead_data.get('lead_data', {}),
-                'qcm_responses': lead_data.get('qcm_responses', {}),
-                'status': lead_data.get('status', 'new'),
-                'needs_followup': lead_data.get('needs_followup', False),
-                'wants_callback': lead_data.get('wants_callback', False)
-            }
-    
-            if existing_lead.data:
-                self.supabase.table('conversations')\
-                    .update(data_to_update)\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
-            else:
-                self.supabase.table('conversations').insert({
-                    'conversation_id': conversation_id,
-                    **data_to_update
-                }).execute()
-            return True
-        except Exception as e:
-            print(f"Erreur Supabase: {str(e)}")
-            return False
-            
-    def track_lead_info(self, conversation_id, new_info, interaction=None):
-        """Analyse et stocke les informations du lead"""
-        try:
-            data = self.supabase.table('conversations')\
-                .select('*')\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-    
-            if data.data:
-                record = data.data[0]
-                lead_data = record.get('lead_data', {})
-                history = record.get('conversation_history', [])
-                qcm_progress = record.get('qcm_progress', {})
-            else:
-                lead_data = {}
-                history = []
-                qcm_progress = {
-                    'objectifs': False,
-                    'patrimoine': False,
-                    'revenus': False,
-                    'telephone': False
-                }
-    
-            # Mettre à jour les informations et la progression
-            if new_info:
-                lead_data.update(new_info)
-                for key in new_info:
-                    if key in qcm_progress:
-                        qcm_progress[key] = True
-    
-            # Vérifier si toutes les infos sont collectées
-            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
-                lead_data['preconisation'] = self.generer_preconisation(lead_data)
-    
-            # Sauvegarder les mises à jour
-            data_to_save = {
-                'lead_data': lead_data,
-                'conversation_history': history if interaction else history + [interaction],
-                'qcm_progress': qcm_progress
-            }
-    
-            if data.data:
-                self.supabase.table('conversations').update(data_to_save)\
-                    .eq('conversation_id', conversation_id).execute()
-            else:
-                self.supabase.table('conversations').insert({
-                    'conversation_id': conversation_id,
-                    **data_to_save
-                }).execute()
-    
-            return lead_data, history, qcm_progress
-            
-        except Exception as e:
-            print(f"Erreur lors du tracking des informations: {str(e)}")
-            return {}, [], {}
-
-    def extract_lead_info(self, text):
-        """Extraire les informations du texte avec GPT"""
-        try:
-            response = self.client.chat.completions.create(
-                model="gpt-4o",  # Correction du modèle
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
                 messages=[{
                     "role": "system",
-                    "content": """Tu es un expert en extraction d'informations.
-                    Analyse le texte et retourne UNIQUEMENT un objet JSON avec les informations trouvées.
-                    - name: prénom/nom mentionnés
-                    - profession: métier ou situation professionnelle
-                    - patrimoine: montants ou fourchettes financières
-                    - contact: email ou téléphone
-                    - objectifs: buts patrimoniaux explicites
-                    
-                    IMPORTANT: 
-                    - Renvoie null si l'information n'est pas explicitement mentionnée
-                    - N'invente aucune information
-                    - Ne fais aucune déduction"""
+                    "content": """Analyse le message et extrait les informations suivantes au format JSON :
+                    - name: prénom et/ou nom mentionnés
+                    - email: adresse email
+                    - phone: numéro de téléphone
+                    - objectifs: objectifs patrimoniaux mentionnés
+                    - patrimoine: montant ou fourchette de patrimoine
+                    - revenus: montant ou fourchette de revenus
+                    Renvoie uniquement les informations explicitement mentionnées."""
                 }, {
                     "role": "user",
-                    "content": text
+                    "content": message
                 }],
-                temperature=0.2
+                temperature=0.3
             )
-            return json.loads(response.choices[0].message.content)
+            
+            return json.loads(response.choices[0].message['content'])
         except Exception as e:
-            print(f"Erreur dans extract_lead_info: {str(e)}")
+            print(f"Erreur lors de l'extraction d'informations : {str(e)}")
             return {}
-
-    def generer_reponse(self, question, conversation_id):
+            
+    def get_next_question(self, state: Dict) -> Optional[str]:
+        """Détermine la prochaine question à poser basée sur l'état actuel"""
+        if not state.get('name'):
+            return "Pour mieux vous accompagner, pourriez-vous me dire comment vous vous appelez ?"
+        
+        if not state.get('email'):
+            return f"Merci {state['name']}. Pour pouvoir vous envoyer une analyse détaillée, quelle est votre adresse email ?"
+            
+        if not state.get('objectifs'):
+            return "Quels sont vos objectifs patrimoniaux ? (Par exemple : épargne, investissement, préparation retraite...)"
+            
+        if not state.get('patrimoine'):
+            return "Pour vous conseiller au mieux, quel est approximativement votre patrimoine actuel ?"
+            
+        if not state.get('revenus'):
+            return "Et quels sont vos revenus annuels ?"
+            
+        if not state.get('phone'):
+            return "Enfin, pour qu'un de nos experts puisse vous recontacter, quel est votre numéro de téléphone ?"
+            
+        return None
+        
+    def generate_analysis(self, state: Dict) -> str:
+        """Génère une analyse personnalisée basée sur les informations collectées"""
         try:
-            # Extraire les infos de la question
-            new_info = self.extract_lead_info(question)
-            lead_data, history = self.track_lead_info(conversation_id, new_info)
+            prompt = f"""
+            Génère une analyse patrimoniale personnalisée pour un client avec le profil suivant :
+            - Nom : {state.get('name')}
+            - Objectifs : {state.get('objectifs')}
+            - Patrimoine : {state.get('patrimoine')}
+            - Revenus : {state.get('revenus')}
             
-            # Si premier message
-            if not history:
-                return {
-                    'reponse': np.random.choice(self.INITIAL_GREETINGS),
-                    'conversation_id': conversation_id,
-                    'type': 'text'
-                }
-
-            # Construire le contexte pour GPT
-            context = self.build_conversation_context(lead_data, history)
+            Format requis :
+            1. Synthèse de la situation
+            2. 2-3 recommandations principales
+            3. Suggestion d'investissements adaptés
+            4. Point sur la fiscalité
             
-            # Générer la réponse avec GPT-4
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": self.SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Question: {question}\nContexte: {context}"}
-                ],
+            Ton : professionnel mais accessible
+            """
+            
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
+                messages=[{
+                    "role": "system",
+                    "content": prompt
+                }],
                 temperature=0.7
             )
-
-            reponse = response.choices[0].message.content
             
-            # Si toutes les infos sont collectées, générer une préconisation
-            if self.is_lead_complete(lead_data):
-                preconisation = self.generer_preconisation(lead_data)
-                reponse += f"\n\n{preconisation}"
-                
-            return {
-                'reponse': reponse,
-                'conversation_id': conversation_id,
-                'type': 'text'
-            }
-
+            return response.choices[0].message['content']
         except Exception as e:
-            print(f"Erreur dans generer_reponse: {str(e)}")
-            return {
-                'reponse': "Désolé, pourriez-vous reformuler votre question ?",
-                'conversation_id': conversation_id,
-                'type': 'text'
+            print(f"Erreur lors de la génération de l'analyse : {str(e)}")
+            return "Désolé, je n'ai pas pu générer l'analyse pour le moment."
+            
+    async def save_to_supabase(self, state: Dict, conversation_id: str):
+        """Sauvegarde les informations dans Supabase"""
+        try:
+            # Créer ou mettre à jour le lead
+            lead_data = {
+                "first_name": state.get('name', '').split()[0] if state.get('name') else None,
+                "last_name": ' '.join(state.get('name', '').split()[1:]) if state.get('name') else None,
+                "email": state.get('email'),
+                "phone": state.get('phone'),
+                "status": "nouveau"
             }
-
-
-    def valider_reponse_qcm(self, question_type, reponse):
-        """Vérifie si la réponse correspond aux options du QCM"""
-        if question_type not in self.QCM_QUESTIONS:
+            
+            lead_response = await self.supabase.table('leads').upsert(lead_data).execute()
+            lead_id = lead_response.data[0]['id']
+            
+            # Sauvegarder les informations patrimoniales
+            patrimoine_data = {
+                "lead_id": lead_id,
+                "objectifs": state.get('objectifs', '').split(','),
+                "patrimoine_total": self.extract_number(state.get('patrimoine', '0')),
+                "revenus_annuels": self.extract_number(state.get('revenus', '0'))
+            }
+            
+            await self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
+            
+            # Mettre à jour la conversation
+            conversation_data = {
+                "lead_id": lead_id,
+                "conversation_id": conversation_id,
+                "status": "en_cours",
+                "needs_followup": True
+            }
+            
+            await self.supabase.table('conversations').upsert(conversation_data).execute()
+            
+            return True
+        except Exception as e:
+            print(f"Erreur Supabase : {str(e)}")
             return False
             
-        if question_type == 'telephone':
-            # Validation basique pour numéro de téléphone
-            return bool(reponse and len(reponse.replace(' ', '').replace('.', '')) >= 10)
-            
-        return reponse in self.QCM_QUESTIONS[question_type]['options']
-    
-    def repondre_question(self, question, conversation_id=None):
-        """Point d'entrée principal du chatbot"""
-        if conversation_id is None:
-            conversation_id = str(time.time())
-        
+    def extract_number(self, text: str) -> float:
+        """Extrait un nombre d'une chaîne de caractères"""
         try:
-            reponse = self.generer_reponse(question, conversation_id)
+            # Supprimer les symboles monétaires et les espaces
+            cleaned = re.sub(r'[€\s]', '', text)
+            # Convertir les K/M en milliers/millions
+            if 'K' in cleaned.upper():
+                cleaned = str(float(cleaned.upper().replace('K', '')) * 1000)
+            elif 'M' in cleaned.upper():
+                cleaned = str(float(cleaned.upper().replace('M', '')) * 1000000)
+            return float(re.sub(r'[^\d.]', '', cleaned))
+        except:
+            return 0.0
             
-            # Extraction des infos pour déterminer l'étape suivante
-            new_info = self.extract_lead_info(question)
-            lead_data, history, qcm_progress = self.track_lead_info(conversation_id, new_info)
+    def repondre_question(self, question: str, conversation_id: str) -> Dict:
+        """Point d'entrée principal pour traiter une question"""
+        try:
+            # Initialiser ou récupérer l'état de la conversation
+            state = self.conversation_states.get(conversation_id, {})
             
-            # Si c'est le premier message, demander le nom
-            if not history:
+            # Extraire les nouvelles informations de la question
+            new_info = self.extract_info_from_message(question)
+            state.update(new_info)
+            
+            # Valider les informations critiques
+            if new_info.get('email') and not self.validate_email(new_info['email']):
                 return {
-                    'reponse': "Bonjour ! 👋 Je suis votre assistant personnel en gestion de patrimoine. Pour mieux vous accompagner, puis-je connaître votre nom ?",
+                    'reponse': "Cette adresse email ne semble pas valide. Pourriez-vous la vérifier ?",
                     'conversation_id': conversation_id,
                     'type': 'text'
                 }
-    
-            # Séquence de qualification
-            if not lead_data.get('name'):
-                return {
-                    'reponse': np.random.choice(self.QUALIFICATION_QUESTIONS['name']),
-                    'conversation_id': conversation_id,
-                    'type': 'text'
-                }
-            
-            if not lead_data.get('contact'):
-                return {
-                    'reponse': np.random.choice(self.QUALIFICATION_QUESTIONS['contact']),
-                    'conversation_id': conversation_id,
-                    'type': 'text'
-                }
-            
-            # Séquence QCM
-            if not qcm_progress.get('objectifs'):
-                return {
-                    'type': 'qcm',
-                    'question': self.QCM_QUESTIONS['objectifs']['question'],
-                    'options': self.QCM_QUESTIONS['objectifs']['options'],
-                    'conversation_id': conversation_id
-                }
-            
-            if not qcm_progress.get('patrimoine'):
-                return {
-                    'type': 'qcm',
-                    'question': self.QCM_QUESTIONS['patrimoine']['question'],
-                    'options': self.QCM_QUESTIONS['patrimoine']['options'],
-                    'conversation_id': conversation_id
-                }
-            
-            if not qcm_progress.get('revenus'):
-                return {
-                    'type': 'qcm',
-                    'question': self.QCM_QUESTIONS['revenus']['question'],
-                    'options': self.QCM_QUESTIONS['revenus']['options'],
-                    'conversation_id': conversation_id
-                }
-            
-            if not qcm_progress.get('telephone'):
-                # Question pour le numéro de téléphone
-                return {
-                    'type': 'telephone',
-                    'question': self.QCM_QUESTIONS['telephone']['question'],
-                    'conversation_id': conversation_id
-                }
-            
-            # Si toutes les infos sont collectées, générer une préconisation
-            if all(qcm_progress.values()) and not lead_data.get('preconisation'):
-                preconisation = self.generer_preconisation(lead_data)
-                lead_data['preconisation'] = preconisation
-                self.update_lead_data(conversation_id, lead_data)
                 
+            if new_info.get('phone') and not self.validate_phone(new_info['phone']):
                 return {
-                    'type': 'preconisation',
-                    'reponse': preconisation,
-                    'conversation_id': conversation_id
+                    'reponse': "Ce numéro de téléphone ne semble pas valide. Pourriez-vous le vérifier ?",
+                    'conversation_id': conversation_id,
+                    'type': 'text'
                 }
+                
+            # Sauvegarder l'état mis à jour
+            self.conversation_states[conversation_id] = state
             
-            # Si on arrive ici, c'est une conversation normale
+            # Déterminer la prochaine question
+            next_question = self.get_next_question(state)
+            
+            # Si toutes les informations sont collectées
+            if not next_question:
+                # Générer l'analyse
+                analysis = self.generate_analysis(state)
+                # Sauvegarder dans Supabase
+                self.save_to_supabase(state, conversation_id)
+                return {
+                    'reponse': analysis,
+                    'conversation_id': conversation_id,
+                    'type': 'analysis'
+                }
+                
+            # Sinon, poser la prochaine question
             return {
-                'reponse': reponse,
+                'reponse': next_question,
                 'conversation_id': conversation_id,
                 'type': 'text'
             }
             
         except Exception as e:
-            print(f"Erreur dans repondre_question: {str(e)}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
+            print(f"Erreur dans repondre_question : {str(e)}")
             return {
-                'reponse': "Désolé, une erreur s'est produite. Pouvez-vous reformuler votre question ?",
+                'reponse': "Désolé, je n'ai pas pu traiter votre demande. Pouvez-vous reformuler ?",
                 'conversation_id': conversation_id,
                 'type': 'text'
             }
-    
-    def valider_et_nettoyer_telephone(self, numero):
-        """Valide et nettoie un numéro de téléphone"""
-        # Supprimer tous les caractères non numériques
-        numero_clean = ''.join(filter(str.isdigit, numero))
-        
-        # Vérifier la longueur (10 chiffres pour la France)
-        if len(numero_clean) == 10:
-            # Format: 06 12 34 56 78
-            return ' '.join([numero_clean[i:i+2] for i in range(0, 10, 2)])
-        
-        # Format international
-        if len(numero_clean) > 10 and numero_clean.startswith('33'):
-            numero_clean = '0' + numero_clean[2:]
-            if len(numero_clean) == 10:
-                return ' '.join([numero_clean[i:i+2] for i in range(0, 10, 2)])
-        
-        return None
