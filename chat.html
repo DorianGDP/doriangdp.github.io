@@ -28,19 +28,11 @@
                 opacity: 1;
             }
         }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .animate-fade-in {
-            animation: fadeIn 0.3s ease-out forwards;
-        }
         
         .message-animation {
             animation: slideIn 0.3s ease-out forwards;
         }
+        
         ::-webkit-scrollbar {
             width: 6px;
         }
@@ -51,52 +43,7 @@
             background: #06b6d4;
             border-radius: 3px;
         }
-        .qcm-option {
-            transition: all 0.3s ease;
-        }
-        
-        .qcm-option.selected {
-            background-color: #4c1d95;
-            color: white;
-        }
-        
-        .qcm-option:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .qcm-option {
-            @apply px-4 py-2 rounded-full text-sm font-medium transition-all duration-300;
-            @apply bg-purple-50 text-purple-800 hover:bg-purple-100;
-            @apply cursor-pointer border border-purple-200;
-        }
-        
-        .qcm-option.selected {
-            @apply bg-purple-800 text-white border-purple-800 font-bold;
-            transform: scale(1.05);
-        }
-        
-        .qcm-option.not-selected {
-            @apply opacity-50 cursor-not-allowed;
-        }
-        
-        .qcm-options-container {
-            @apply flex flex-wrap gap-2 mt-3 animate-fade-in;
-        }
-        
-        .animate-slide-in {
-            animation: slideIn 0.3s ease-out forwards;
-        }     
-        .preconisation {
-            background-color: #f0f9ff;
-            border-left: 4px solid #0ea5e9;
-            padding: 1rem;
-            margin: 1rem 0;
-        }
-        
-        .telephone-input {
-            @apply mt-2 p-2 w-full border border-gray-300 rounded-md focus:ring-2 focus:ring-cyan-400 focus:border-transparent;
-        }
-</style>
+    </style>
 </head>
 <body class="h-screen flex flex-col bg-gray-50">
     <header class="gradient-header p-4 shadow-lg">
@@ -107,7 +54,7 @@
                 </svg>
             </div>
             <div>
-                <h1 class="text-xl font-bold text-white">Mon Assistant Patrimonial</h1>
+                <h1 class="text-xl font-bold text-white">Emma - Votre Conseillère Patrimoniale</h1>
                 <p class="text-sm text-gray-200">En ligne</p>
             </div>
         </div>
@@ -132,10 +79,8 @@
     </footer>
 
     <script>
-        // Configuration
-        const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';// URL du serveur Flask
-        let isFirstMessage = true;
-        let conversationId = null;
+        const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';
+        let conversationId = localStorage.getItem('chatConversationId') || `conv_${Date.now()}`;
         const messagesContainer = document.getElementById('chat-messages');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
@@ -143,7 +88,7 @@
         // Fonction pour ajouter un message
         function appendMessage(sender, content, isError = false) {
             const messageDiv = document.createElement('div');
-            messageDiv.className = 'message-container animate-slide-in';
+            messageDiv.className = 'message-container';
             
             const innerDiv = document.createElement('div');
             innerDiv.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
@@ -155,14 +100,15 @@
                     : `message-bot ${isError ? 'bg-red-50' : ''} text-gray-800`
             }`;
             
-            contentDiv.textContent = content;
+            // Convertir les liens en éléments cliquables
+            content = content.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="text-blue-600 hover:underline">$1</a>');
+            contentDiv.innerHTML = content;
             
             innerDiv.appendChild(contentDiv);
             messageDiv.appendChild(innerDiv);
             messagesContainer.appendChild(messageDiv);
             
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
-            return messageDiv;
         }
 
         // Fonction d'envoi de message
@@ -170,7 +116,6 @@
             const message = userInput.value.trim();
             if (!message) return;
 
-            // Désactiver l'interface pendant l'envoi
             userInput.value = '';
             userInput.disabled = true;
             sendButton.disabled = true;
@@ -187,7 +132,7 @@
                     },
                     body: JSON.stringify({
                         question: message,
-                        conversation_id: conversationId || `conv_${Date.now()}`
+                        conversation_id: conversationId
                     })
                 });
 
@@ -197,10 +142,13 @@
 
                 const data = await response.json();
                 
-                if (!conversationId) {
+                // Mise à jour de l'ID de conversation si nécessaire
+                if (data.conversation_id) {
                     conversationId = data.conversation_id;
+                    localStorage.setItem('chatConversationId', conversationId);
                 }
 
+                // Afficher la réponse
                 appendMessage('bot', data.reponse);
 
             } catch (error) {
@@ -211,229 +159,16 @@
                     true
                 );
             } finally {
-                // Réactiver l'interface
                 userInput.disabled = false;
                 sendButton.disabled = false;
                 userInput.focus();
-            }
-        }
-        
-        function createQCMOptions(qcmData) {
-            const container = document.createElement('div');
-            container.className = 'qcm-options-container';
-        
-            // Ajouter le titre de la question
-            const title = document.createElement('div');
-            title.className = 'text-gray-700 font-medium mb-3';
-            title.textContent = qcmData.question;
-            container.appendChild(title);
-        
-            // Créer les boutons d'options
-            const optionsDiv = document.createElement('div');
-            optionsDiv.className = 'flex flex-wrap gap-2';
-        
-            qcmData.options.forEach(option => {
-                const button = document.createElement('button');
-                button.className = 'qcm-option';
-                button.textContent = option;
-                button.dataset.questionType = qcmData.type;
-                button.dataset.option = option;
-                button.onclick = () => sendQCMResponse(option, qcmData.type);
-                optionsDiv.appendChild(button);
-            });
-        
-            container.appendChild(optionsDiv);
-            return container;
-        }
-
-        function createPreconisation(data) {
-            return `
-            <div class="preconisation-container">
-                <div class="bg-gradient-to-r from-purple-50 to-cyan-50 rounded-lg p-6 shadow-sm">
-                    <h3 class="text-xl font-bold text-purple-800 mb-4">
-                        Préconisation personnalisée
-                    </h3>
-                    <div class="space-y-4">
-                        ${formatText(data.content)}
-                    </div>
-                    ${data.links ? `
-                    <div class="mt-4 pt-4 border-t border-purple-100">
-                        <p class="text-sm font-medium text-purple-800 mb-2">
-                            Pour approfondir :
-                        </p>
-                        <div class="space-y-2">
-                            ${data.links.map(link => `
-                                <a href="${link.url}" 
-                                   target="_blank"
-                                   class="block text-cyan-600 hover:text-cyan-800 underline text-sm">
-                                    ${link.title}
-                                </a>
-                            `).join('')}
-                        </div>
-                    </div>
-                    ` : ''}
-                </div>
-            </div>`;
-        }
-
-        function sendQCMResponse(option, questionType) {
-            appendMessage('user', option);
-            sendMessage(true, {
-                type: questionType,
-                response: option
-            });
-        
-            // Désactiver les options après sélection
-            const options = document.querySelectorAll('.qcm-option');
-            options.forEach(opt => {
-                opt.disabled = true;
-                if (opt.textContent === option) {
-                    opt.classList.add('selected');
-                } else {
-                    opt.classList.add('not-selected');
-                }
-            });
-        }
-        
-        // Fonctions de formatage du texte
-        function formatText(text) {
-            const references = {};
-            const referenceRegex = /\[(\^[0-9]+\^)\]:\s*(https?:\/\/[^\s]+)/g;
-            let match;
-            
-            text = text.split('\n').filter(line => {
-                match = referenceRegex.exec(line);
-                if (match) {
-                    references[match[1]] = match[2].trim();
-                    return false;
-                }
-                return true;
-            }).join('\n');
-        
-            text = text.replace(/###\s+([^\n]+)/g, '<h3 class="text-xl font-bold text-purple-800 mb-3 mt-4">$1</h3>');
-        
-            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, linkText, url) => {
-                url = url.trim();
-                if (!url.startsWith('http')) {
-                    url = 'https://' + url;
-                }
-                return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">${linkText}</a>`;
-            });
-        
-            text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold">$1</strong>');
-        
-            text = text.replace(/\[(\^[0-9]+\^)\]/g, (match, ref) => {
-                const url = references[ref];
-                if (url) {
-                    return `<a href="${url}" class="text-blue-600 hover:text-blue-800 underline" target="_blank">[${ref.replace(/\^/g, '')}]</a>`;
-                }
-                return match;
-            });
-        
-            text = text.replace(/- /g, '\n- ');
-        
-            const paragraphs = text.split('\n').map(paragraph => {
-                if (paragraph.includes('<h3')) {
-                    return paragraph;
-                }
-                if (paragraph.trim().startsWith('- ')) {
-                    return `<li class="ml-4 mb-2">• ${paragraph.substring(2)}</li>`;
-                }
-                if (paragraph.trim() && !paragraph.includes('<h3')) {
-                    return `<p class="mb-2">${paragraph}</p>`;
-                }
-                return '';
-            }).filter(p => p);
-        
-            let formattedHtml = '';
-            let inList = false;
-        
-            paragraphs.forEach((p, index) => {
-                if (p.startsWith('<li')) {
-                    if (!inList) {
-                        formattedHtml += '<ul class="my-2 space-y-1">';
-                        inList = true;
-                    }
-                    formattedHtml += p;
-                } else {
-                    if (inList) {
-                        formattedHtml += '</ul>';
-                        inList = false;
-                    }
-                    formattedHtml += p;
-                }
-            });
-        
-            if (inList) {
-                formattedHtml += '</ul>';
-            }
-        
-            return `<div class="space-y-4">${formattedHtml}</div>`;
-        }
-        
-        function updateMessage(loadingId, sender, message) {
-            const messageContainer = document.querySelector(`#chat-messages > div:last-child`);
-            if (!messageContainer) {
-                console.error('Container de message non trouvé');
-                return;
-            }
-        
-            const messageContent = messageContainer.querySelector(':scope > div > div');
-            if (!messageContent) {
-                console.error('Contenu du message non trouvé');
-                return;
-            }
-        
-            if (sender === 'bot') {
-                if (typeof message === 'object') {
-                    switch(message.type) {
-                        case 'qcm':
-                            messageContent.innerHTML = '';
-                            messageContent.appendChild(createQCMOptions(message));
-                            break;
-                        case 'preconisation':
-                            messageContent.innerHTML = createPreconisation(message);
-                            break;
-                        default:
-                            messageContent.innerHTML = formatText(message.reponse || message);
-                    }
-                } else {
-                    messageContent.innerHTML = formatText(message);
-                }
-                messageContent.className = 'message-animation p-4 max-w-[80%] message-bot text-gray-800';
-            } else {
-                messageContent.textContent = message;
-                messageContent.className = 'message-animation p-4 max-w-[80%] message-user text-white';
-            }
-            
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-
-        // Fonctions utilitaires
-        function disableSendButton() {
-            sendButton.disabled = true;
-            sendButton.classList.add('opacity-50');
-        }
-
-        function enableSendButton() {
-            sendButton.disabled = false;
-            sendButton.classList.remove('opacity-50');
-        }
-
-        function showWelcomeMessage() {
-            if (isFirstMessage) {
-                appendMessage('bot', "Bonjour ! 👋 Je suis votre assistant personnel en gestion de patrimoine. Je suis là pour répondre à vos questions et vous guider dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
-                isFirstMessage = false;
             }
         }
 
         // Event Listeners
         document.addEventListener('DOMContentLoaded', function() {
             // Message de bienvenue
-            if (isFirstMessage) {
-                appendMessage('bot', "Bonjour ! 👋 Je suis Emma votre assistant personnel en gestion de patrimoine. Je suis là pour répondre à vos questions et vous guider dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
-                isFirstMessage = false;
-            }
+            appendMessage('bot', "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Je suis là pour répondre à vos questions et vous accompagner dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
             
             // Gestionnaire de clic pour le bouton d'envoi
             sendButton.addEventListener('click', sendMessage);
@@ -445,13 +180,6 @@
                     sendMessage();
                 }
             });
-        });
-        
-        // Gestion des messages de l'iframe parent
-        window.addEventListener('message', function(event) {
-            if (event.data === 'chatOpened') {
-                isFirstMessage = false;
-            }
         });
     </script>
 </body>
