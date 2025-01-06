@@ -240,21 +240,17 @@ class ChatBot:
             name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
             initial_query = collected_info.get('initial_query', '')
             
-            system_prompt = """Tu es Emma, une conseillère patrimoniale professionnelle.
-            Ta mission est de collecter des informations sur le client avant de répondre à ses questions techniques.
-            Réponds de manière naturelle et empathique."""
+            system_prompt = """Tu es Emma, conseillère patrimoniale. Réponds de façon concise et naturelle.
+            Informe toujours que tu as besoin d'informations avant de répondre aux questions techniques."""
     
-            user_prompt = f"""Contexte :
-            - Question initiale du client : {initial_query}
-            - Message actuel : {message}
-            - Prénom du client : {name}
-            - Prochaine information nécessaire : {next_info['question']}
+            user_prompt = f"""Question initiale : {initial_query}
+            Message reçu : {message}
+            Prénom client : {name}
+            Question suivante : {next_info['question']}
             
-            Génère une réponse qui :
-            1. Accuse réception du message précédent si pertinent
-            2. Fait référence à la question initiale pour montrer que tu ne l'as pas oubliée
-            3. Explique poliment que tu as besoin d'informations supplémentaires pour répondre
-            4. Pose la question suivante de manière naturelle"""
+            Réponds brièvement :
+            1. Accuse réception si pertinent
+            2. Pose la question suivante"""
     
             response = self.client.chat.completions.create(
                 model="gpt-4o",
@@ -262,6 +258,7 @@ class ChatBot:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
+                max_tokens=150,  # Limite le nombre de tokens de la réponse
                 temperature=0.7
             )
     
@@ -270,7 +267,6 @@ class ChatBot:
                 'content': response.choices[0].message.content,
                 'options': next_info.get('options', [])
             }
-    
         except Exception as e:
             print(f"Error in generate_response: {str(e)}")
             return {
@@ -385,32 +381,32 @@ class ChatBot:
 
     async def generer_analyse_finale(self, info_collected: dict) -> str:
         try:
-            prompt = f"""En tant que conseillère en gestion de patrimoine, analyse cette situation:
-
-            Question initiale: {info_collected.get('initial_query')}
-            Informations client:
-            {json.dumps(info_collected, indent=2)}
-
-            Structure de l'analyse:
-            1. Résumé personnalisé
-            2. Réponse à la question initiale
-            3. 2-3 recommandations avec avantages
-            4. Proposition de rendez-vous"""
-
+            prompt = f"""En tant que conseillère patrimoniale, fais une analyse concise :
+    
+            Question initiale : {info_collected.get('initial_query')}
+            Infos client : {json.dumps(info_collected, indent=2)}
+    
+            Format court :
+            1. Résumé de la situation
+            2. Réponse à la question
+            3. 1-2 recommandations clés
+            4. Proposition de RDV"""
+    
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "Tu es Emma, conseillère patrimoniale expérimentée."},
+                    {"role": "system", "content": "Tu es Emma, conseillère patrimoniale. Sois concise et précise."},
                     {"role": "user", "content": prompt}
                 ],
+                max_tokens=300,  # Limite la longueur de l'analyse
                 temperature=0.7
             )
-
+    
             return response.choices[0].message.content
-
+    
         except Exception as e:
             print(f"Error in generer_analyse_finale: {str(e)}")
-            return "Je suis désolée, je ne peux pas générer l'analyse pour le moment. Pouvons-nous reprendre ?"
+            return "Je suis désolée, je ne peux pas générer l'analyse pour le moment."
 
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
