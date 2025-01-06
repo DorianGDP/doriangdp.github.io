@@ -10,6 +10,15 @@ const ImprovedChatbot = () => {
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   
+  const cleanResponse = (response) => {
+    let cleanedContent = response
+      .replace(/Message:.*Info collectées:.*Question suivante:/g, '')
+      .replace(/Question suivante:/g, '')
+      .replace(/{".*?"}/g, '')
+      .trim();
+    return cleanedContent;
+  };
+
   const handleResponse = async (userMessage) => {
     try {
       setIsLoading(true);
@@ -37,7 +46,8 @@ const ImprovedChatbot = () => {
         }));
       }
 
-      addMessage('bot', data.content, data.options || []);
+      const cleanedContent = cleanResponse(data.content);
+      addMessage('bot', cleanedContent, data.options || []);
       
     } catch (error) {
       addMessage('bot', "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?");
