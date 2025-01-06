@@ -44,70 +44,41 @@ class ConversationStorage:
         return conv.get('info_collected', {})
 
 class InfoCollector:
-    """Gère la séquence de collecte d'informations"""
     def __init__(self):
         self.info_sequence = [
             {
                 'field': 'name',
                 'required': True,
-                'questions': [
-                    "Pour mieux vous accompagner dans votre projet {}, puis-je avoir votre nom ?",
-                    "Pour personnaliser mes conseils concernant {}, comment dois-je vous appeler ?",
-                    "Afin de vous proposer les meilleures solutions pour {}, quel est votre nom ?"
-                ]
+                'question': "Pour vous conseiller au mieux, quel est votre nom et prénom ?"
             },
             {
                 'field': 'contact',
                 'required': True,
-                'questions': [
-                    "Pour pouvoir vous recontacter avec des informations détaillées sur {}, quel est votre email ou téléphone ?",
-                    "Afin d'approfondir notre discussion sur {}, quelle est la meilleure façon de vous joindre ?",
-                    "Pour vous envoyer une analyse personnalisée concernant {}, comment puis-je vous contacter ?"
-                ]
-            },
-            {
-                'field': 'age',
-                'required': True,
-                'questions': [
-                    "L'âge est un facteur important pour optimiser {}. Quel âge avez-vous ?",
-                    "Pour adapter au mieux la stratégie concernant {}, pouvez-vous me dire votre âge ?",
-                    "Votre âge nous permettra de mieux personnaliser les solutions pour {}. Quel est-il ?"
-                ]
-            },
-            {
-                'field': 'situation_familiale',
-                'required': True,
-                'questions': [
-                    "Votre situation familiale peut influencer les choix concernant {}. Êtes-vous marié(e), en couple, célibataire ?",
-                    "Pour optimiser {} en fonction de votre situation, êtes-vous en couple ou célibataire ?",
-                    "Quelle est votre situation familiale ? Cela nous aidera à mieux adapter les solutions pour {}"
-                ]
-            },
-            {
-                'field': 'profession',
-                'required': True,
-                'questions': [
-                    "Votre profession peut ouvrir des opportunités spécifiques pour {}. Que faites-vous dans la vie ?",
-                    "Pour identifier les meilleures options concernant {}, quelle est votre profession ?",
-                    "Certaines solutions pour {} dépendent de votre activité professionnelle. Que faites-vous ?"
-                ]
+                'question': "Merci de me communiquer votre email ou numéro de téléphone pour être recontacté",
+                'type': 'text'
             },
             {
                 'field': 'revenus',
                 'required': True,
-                'questions': [
-                    "Pour évaluer les possibilités concernant {}, dans quelle tranche de revenus annuels vous situez-vous ?",
-                    "Afin d'optimiser {} en fonction de vos moyens, quels sont vos revenus annuels approximatifs ?",
-                    "Pour vous proposer des solutions adaptées pour {}, quel est votre niveau de revenus ?"
+                'question': "Dans quelle tranche de revenus annuels vous situez-vous ?",
+                'type': 'choice',
+                'options': [
+                    "Moins de 30 000€",
+                    "30 000€ - 50 000€",
+                    "50 000€ - 100 000€",
+                    "Plus de 100 000€"
                 ]
             },
             {
                 'field': 'patrimoine',
                 'required': True,
-                'questions': [
-                    "Le patrimoine actuel est important pour optimiser {}. Quel est le montant approximatif de votre patrimoine ?",
-                    "Pour une stratégie efficace concernant {}, pouvez-vous m'indiquer votre patrimoine global ?",
-                    "Afin d'adapter nos recommandations pour {}, quel est votre patrimoine actuel ?"
+                'question': "Quel est le montant approximatif de votre patrimoine ?",
+                'type': 'choice',
+                'options': [
+                    "Moins de 50 000€",
+                    "50 000€ - 200 000€",
+                    "200 000€ - 500 000€",
+                    "Plus de 500 000€"
                 ]
             }
         ]
@@ -117,8 +88,11 @@ class InfoCollector:
         for info in self.info_sequence:
             field = info['field']
             if field not in collected_info or not collected_info[field]:
-                question = random.choice(info['questions']).format(initial_query or "votre projet patrimonial")
-                return field, question
+                return field, {
+                    'question': info['question'],
+                    'type': info.get('type', 'text'),
+                    'options': info.get('options', [])
+                }
         return None, None
 
     def is_collection_complete(self, collected_info: dict) -> bool:
