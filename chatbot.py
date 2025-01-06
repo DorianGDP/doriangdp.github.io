@@ -219,39 +219,58 @@ class ChatBot:
                 'options': []
             }
     
-            name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
+            # Si c'est le premier message, on commence toujours par demander le nom
+            if not collected_info.get('name'):
+                return {
+                    'type': 'text',
+                    'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux vous accompagner dans votre projet, pourriez-vous me donner votre nom et prénom ?",
+                    'options': []
+                }
     
-            system_prompt = "Tu es Emma, une conseillère patrimoniale professionnelle. Réponds de manière naturelle et concise. Ne mentionne pas les données techniques."
+            # Vérifier si on a une question suivante à poser
+            if next_question:
+                system_prompt = """Tu es Emma, une conseillère patrimoniale professionnelle. 
+                Tu dois répondre de manière naturelle et empathique, en expliquant que tu as besoin 
+                d'informations supplémentaires pour mieux conseiller la personne."""
     
-            # Vérifier si le message contient déjà une réponse à la question précédente
-            last_field, _ = self.info_collector.get_next_question(collected_info)
-            if last_field:
-                user_prompt = f"""En te basant sur ce contexte :
-                - Question actuelle : {message}
-                - Dernière information reçue : {collected_info.get(last_field, '')}
-                - Prochaine information nécessaire : {next_question['question'] if next_question else 'Analyse finale'}
+                name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
                 
-                Accuse réception de la dernière information et guide naturellement vers la prochaine question."""
+                user_prompt = f"""En tenant compte de ces éléments :
+                - Message reçu : {message}
+                - Prénom du client : {name}
+                - Information à obtenir : {next_question['question']}
+                
+                Génère une réponse qui :
+                1. Accusé réception de sa réponse précédente si pertinent
+                2. Explique naturellement que tu as besoin d'une information supplémentaire
+                3. Pose la question suivante : {next_question['question']}"""
     
-            chat_completion = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.7
-            )
+                chat_completion = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.7
+                )
+                
+                response['content'] = chat_completion.choices[0].message.content
+    
+                if next_question.get('type') == 'choice':
+                    response['type'] = 'choice'
+                    response['options'] = next_question.get('options', [])
+    
+                return response
             
-            response['content'] = chat_completion.choices[0].message.content
-    
-            if next_question and next_question.get('type') == 'choice':
-                response['type'] = 'choice'
-                response['options'] = next_question.get('options', [])
-    
-            return response
+            # Si toutes les informations sont collectées, générer l'analyse finale
+            return {
+                'type': 'text',
+                'content': await self.generer_analyse_finale(collected_info, initial_query),
+                'options': []
+            }
     
         except Exception as e:
-            print(f"Error: {str(e)}")
+            print(f"Error in generate_response: {str(e)}")
             return {
                 'type': 'text',
                 'content': "Je suis désolée, pourriez-vous reformuler votre réponse ?",
@@ -387,27 +406,27 @@ class ChatBot:
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
+            collected_info = self.conv_storage.get_collected_info(conversation_id)
             
-            # Définir la question initiale si c'est le premier message
+            # Si c'est le premier message
             if not conversation.get('initial_query'):
                 self.conv_storage.set_initial_query(conversation_id, question)
+                return await self.generate_response(question, collected_info, {'question': ''}, None)
                 
             extracted_info = await self.extract_info_from_message(question)
             if extracted_info:
                 self.conv_storage.update_info(conversation_id, extracted_info)
                 await self.update_database(conversation_id, extracted_info)
     
-            collected_info = self.conv_storage.get_collected_info(conversation_id)
+            field, next_question = self.info_collector.get_next_question(collected_info)
             
             if self.info_collector.is_collection_complete(collected_info):
-                analysis = await self.generer_analyse_finale(collected_info, conversation.get('initial_query'))
                 return {
                     'type': 'text',
-                    'content': analysis,
+                    'content': await self.generer_analyse_finale(collected_info, conversation.get('initial_query')),
                     'options': []
                 }
             
-            field, next_question = self.info_collector.get_next_question(collected_info)
             return await self.generate_response(
                 question, 
                 collected_info, 
@@ -419,6 +438,6 @@ class ChatBot:
             print(f"Error in repondre_question: {str(e)}")
             return {
                 'type': 'text',
-                'content': "Pourriez-vous reformuler ?",
+                'content': "Je suis désolée, pourriez-vous reformuler votre réponse ?",
                 'options': []
             }
