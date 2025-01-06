@@ -184,7 +184,7 @@ class ChatBot:
 
             try:
                 chat_completion = self.client.chat.completions.create(  # Retiré le await
-                    model="gpt-3.5-turbo",
+                    model="gpt-4o",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content}
@@ -310,7 +310,7 @@ class ChatBot:
             5. Se terminer par une proposition de rendez-vous personnalisé"""
 
             response = self.client.chat.completions.create(  # Retiré le await
-                model="gpt-4",  # Corrigé le nom du modèle
+                model="gpt-4o",  # Corrigé le nom du modèle
                 messages=[
                     {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et empathique."},
                     {"role": "user", "content": prompt}
