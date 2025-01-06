@@ -190,7 +190,7 @@ class ChatBot:
             Message: {message}"""
 
             response = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -210,22 +210,27 @@ class ChatBot:
 
     async def generate_response(self, message: str, field: str, next_info: dict, collected_info: dict) -> dict:
         try:
+            name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
+            initial_query = collected_info.get('initial_query', '')
+            
             system_prompt = """Tu es Emma, une conseillère patrimoniale professionnelle.
+            Ta mission est de collecter des informations sur le client avant de répondre à ses questions techniques.
             Réponds de manière naturelle et empathique."""
     
-            name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
+            user_prompt = f"""Contexte :
+            - Question initiale du client : {initial_query}
+            - Message actuel : {message}
+            - Prénom du client : {name}
+            - Prochaine information nécessaire : {next_info['question']}
             
-            user_prompt = f"""Message reçu: {message}
-            Prénom client: {name}
-            Question suivante: {next_info['question']}
-            
-            Génère une réponse qui:
-            1. Accuse réception si pertinent
-            2. Pose la question suivante naturellement
-            3. Ne réponds jamais à des questions techniques, indique toujours que tu as besoin d'en savoir plus sur la personne d'abord"""
+            Génère une réponse qui :
+            1. Accuse réception du message précédent si pertinent
+            2. Fait référence à la question initiale pour montrer que tu ne l'as pas oubliée
+            3. Explique poliment que tu as besoin d'informations supplémentaires pour répondre
+            4. Pose la question suivante de manière naturelle"""
     
             response = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -385,54 +390,46 @@ class ChatBot:
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
-
-            # Gestion de la question initiale
+    
+            # Enregistrer la question initiale si c'est le premier message
             if not collected_info.get('initial_query'):
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
-
-            # Extraction et validation des informations
-            field, next_info = self.info_collector.get_next_info(collected_info)
-            
-            if field == 'name' and not collected_info.get('name'):
-                return {
-                    'type': 'text',
-                    'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux vous accompagner, pourriez-vous me donner votre nom et prénom ?",
-                    'options': []
-                }
-
+    
+            # Extraction des informations du message
             extracted_info = await self.extract_info_from_message(question)
-            if extracted_info and field:
-                is_valid, error_message = self.info_collector.validate_input(
-                    field,
-                    extracted_info.get(field, ''),
-                    collected_info
-                )
-                
-                if is_valid:
-                    self.conv_storage.update_info(conversation_id, extracted_info)
-                    await self.update_database(conversation_id, extracted_info)
-                    field, next_info = self.info_collector.get_next_info(collected_info)
-                else:
-                    return {
-                        'type': 'text',
-                        'content': error_message or "Cette réponse ne semble pas valide. Pourriez-vous réessayer ?",
-                        'options': []
-                    }
-
+            field, next_info = self.info_collector.get_next_info(collected_info)
+    
+            # Si des informations ont été extraites, les valider et mettre à jour
+            if extracted_info:
+                if field in extracted_info:
+                    is_valid, error_message = self.info_collector.validate_input(
+                        field,
+                        extracted_info[field],
+                        collected_info
+                    )
+                    if is_valid:
+                        self.conv_storage.update_info(conversation_id, {field: extracted_info[field]})
+                        await self.update_database(conversation_id, {field: extracted_info[field]})
+                        collected_info = conversation['info_collected']  # Mettre à jour les infos collectées
+                        field, next_info = self.info_collector.get_next_info(collected_info)
+                    else:
+                        return {
+                            'type': 'text',
+                            'content': error_message or "Cette réponse ne semble pas valide. Pourriez-vous réessayer ?",
+                            'options': []
+                        }
+    
+            # Vérifier si la collecte est terminée
             if self.info_collector.is_collection_complete(collected_info):
                 return {
                     'type': 'text',
                     'content': await self.generer_analyse_finale(collected_info),
                     'options': []
                 }
-            else:
-                return await self.generate_response(
-                    message=question,
-                    field=field,
-                    next_info=next_info,
-                    collected_info=collected_info
-                )
-
+    
+            # Générer la prochaine question
+            return await self.generate_response(question, field, next_info, collected_info)
+    
         except Exception as e:
             print(f"Error in repondre_question: {str(e)}")
             return {
