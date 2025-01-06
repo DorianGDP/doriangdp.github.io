@@ -167,24 +167,25 @@
                         conversation_id: conversationId
                     })
                 });
-        
+                
                 if (!response.ok) {
                     throw new Error(`Erreur HTTP: ${response.status}`);
                 }
-        
+                
                 const data = await response.json();
                 
                 if (data.conversation_id) {
                     conversationId = data.conversation_id;
                     localStorage.setItem('chatConversationId', conversationId);
                 }
-        
-                // Afficher la réponse avec les options une seule fois
-                appendMessage('bot', data.reponse.content, data.reponse.options);
+                
+                // Modification ici pour gérer correctement la structure de la réponse
+                appendMessage('bot', data.reponse || data.content, data.options || []);
                 
                 // Désactiver l'input si des options sont disponibles
-                userInput.disabled = data.reponse.options && data.reponse.options.length > 0;
-                sendButton.disabled = userInput.disabled;
+                const hasOptions = data.options && data.options.length > 0;
+                userInput.disabled = hasOptions;
+                sendButton.disabled = hasOptions;
         
             } catch (error) {
                 console.error('Erreur:', error);
