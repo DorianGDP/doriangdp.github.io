@@ -49,13 +49,17 @@ class InfoCollector:
             {
                 'field': 'name',
                 'required': True,
-                'question': "Pour vous conseiller au mieux, quel est votre nom et prénom ?"
+                'question': "Pour mieux vous conseiller, quel est votre nom et prénom ?"
             },
             {
-                'field': 'contact',
+                'field': 'email',
                 'required': True,
-                'question': "Merci de me communiquer votre email ou numéro de téléphone pour être recontacté",
-                'type': 'text'
+                'question': "Votre email pour vous recontacter ?"
+            },
+            {
+                'field': 'phone',
+                'required': True,
+                'question': "Un numéro de téléphone où vous joindre ?"
             },
             {
                 'field': 'revenus',
@@ -64,7 +68,7 @@ class InfoCollector:
                 'type': 'choice',
                 'options': [
                     "Moins de 30 000€",
-                    "30 000€ - 50 000€",
+                    "30 000€ - 50 000€", 
                     "50 000€ - 100 000€",
                     "Plus de 100 000€"
                 ]
@@ -79,6 +83,19 @@ class InfoCollector:
                     "50 000€ - 200 000€",
                     "200 000€ - 500 000€",
                     "Plus de 500 000€"
+                ]
+            },
+            {
+                'field': 'objectifs',
+                'required': True,
+                'question': "Quel est votre principal objectif patrimonial ?",
+                'type': 'choice',
+                'options': [
+                    "Préparer ma retraite",
+                    "Optimiser ma fiscalité",
+                    "Investir dans l'immobilier",
+                    "Protéger mes proches",
+                    "Autre"
                 ]
             }
         ]
@@ -156,7 +173,7 @@ class ChatBot:
             return {}
 
     async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
-        """Génère une réponse contextuelle en utilisant l'IA"""
+        """Génère une réponse contextuelle"""
         try:
             response = {
                 'type': 'text',
@@ -164,43 +181,43 @@ class ChatBot:
                 'options': []
             }
     
-            system_prompt = """Tu es Emma, une conseillère en gestion de patrimoine professionnelle et concise.
-            Tu dois être chaleureuse et empathique dans tes réponses tout en restant professionnelle.
-            Ton objectif est de collecter des informations essentielles sur le client tout en répondant à ses questions.
-            Adapte tes réponses en fonction des informations déjà collectées."""
+            # Récupération du prénom s'il existe
+            name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
+            greeting = f"Bonjour {name}, " if name else "Bonjour ! "
     
-            user_content = f"""Message du client: {message}
+            # Premier message ou aucune info collectée
+            if not collected_info:
+                response['content'] = f"{greeting}Je suis Emma, votre conseillère. {next_question['question']}"
+                return response
     
-            Contexte:
-            - Informations déjà collectées: {json.dumps(collected_info, ensure_ascii=False)}
-            - Question initiale: {initial_query if initial_query else 'Aucune'}
-            {'- Prochaine information à collecter: ' + next_question['question'] if next_question else ''}
-            
-            Instructions:
-            1. Accueille chaleureusement le client s'il s'agit de son premier message
-            2. Réponds à sa question ou son message de manière naturelle
-            3. Si des informations sont manquantes, explique pourquoi tu as besoin d'en savoir plus
-            4. Pose la question suivante de manière naturelle dans la conversation"""
-
+            system_prompt = """Emma: conseillère patrimoniale professionnelle et concise. Objectif: collecter les informations client et répondre à leurs questions."""
+    
+            user_content = f"""Client: {message}
+    Info collectées: {json.dumps(collected_info, ensure_ascii=False)}
+    Question initiale: {initial_query if initial_query else ''}
+    {next_question['question'] if next_question else ''}"""
+    
             try:
-                chat_completion = self.client.chat.completions.create(  # Retiré le await
+                chat_completion = self.client.chat.completions.create(
                     model="gpt-4o",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content}
                     ],
-                    temperature=0.7
+                    temperature=0.5
                 )
                 
-                response['content'] = chat_completion.choices[0].message.content
+                # Génération de la réponse
+                ai_response = chat_completion.choices[0].message.content
+                response['content'] = f"{ai_response} {next_question['question'] if next_question else ''}"
     
-            except Exception as api_error:
-                print(f"OpenAI API error: {str(api_error)}")
-                response['content'] = "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?"
+                # Ajout des options si question à choix
+                if next_question and next_question.get('type') == 'choice':
+                    response['type'] = 'choice'
+                    response['options'] = next_question.get('options', [])
     
-            if next_question and next_question.get('type') == 'choice':
-                response['type'] = 'choice'
-                response['options'] = next_question.get('options', [])
+            except Exception:
+                response['content'] = "Désolée, pourriez-vous reformuler ?"
     
             return response
     
@@ -208,7 +225,7 @@ class ChatBot:
             print(f"Error in generate_response: {str(e)}")
             return {
                 'type': 'text',
-                'content': "Je suis désolée, pourriez-vous reformuler votre demande ?",
+                'content': "Pourriez-vous reformuler votre demande ?",
                 'options': []
             }
     
