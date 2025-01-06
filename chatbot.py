@@ -161,73 +161,64 @@ class ChatBot:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
 
-    async def generate_response(self, message: str, collected_info: dict, next_question: Optional[str], initial_query: Optional[str]) -> str:
-        """Génère une réponse contextuelle en tenant compte du message de l'utilisateur"""
+    async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
+        """Génère une réponse contextuelle en utilisant l'IA"""
         try:
-            # Détermine si c'est la première interaction
-            conversation = self.conv_storage.get_conversation(self.current_conversation_id)
-            is_first_interaction = len(conversation['messages']) == 0
+            # Prépare la structure de réponse
+            response = {
+                'type': 'text',
+                'content': '',
+                'options': []
+            }
+    
+            # Construit le prompt pour l'IA
+            system_prompt = """Tu es Emma, une conseillère en gestion de patrimoine professionnelle et concise.
+            Ton objectif est de collecter des informations essentielles sur le client tout en répondant à ses questions.
+            Garde tes réponses courtes et naturelles."""
+    
+            context = {
+                'message': message,
+                'collected_info': collected_info,
+                'initial_query': initial_query,
+                'next_needed': next_question['field'] if next_question else None
+            }
+    
+            user_prompt = f"""Message du client: {message}
+    
+            Contexte:
+            - Question initiale: {initial_query if initial_query else 'Aucune'}
+            - Prochaine information nécessaire: {next_question['field'] if next_question else 'Aucune'}
             
-            # Analyse l'intention du message
-            intent_prompt = f'''Analyse ce message et détermine l'intention principale:
-            Message: {message}
-            
-            Retourne une des catégories suivantes:
-            - salutation_simple: simple bonjour sans question
-            - question_patrimoine: question sur la gestion de patrimoine
-            - reponse_info: réponse à une demande d'information
-            - autre: autre type de message
-            
-            Réponds uniquement avec la catégorie, sans autre texte.'''
-            
-            intent_response = self.client.chat.completions.create(
+            Réponds de manière naturelle en:
+            1. Accusant réception du message du client
+            2. Demandant l'information manquante de manière fluide
+            3. Gardant la réponse courte et professionnelle"""
+    
+            chat_response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Tu es un expert en analyse d'intentions."},
-                    {"role": "user", "content": intent_prompt}
-                ],
-                temperature=0.1
-            )
-            
-            intent = intent_response.choices[0].message.content.strip().lower()
-            
-            # Génère une réponse appropriée selon le contexte
-            if is_first_interaction:
-                if intent == "salutation_simple":
-                    return """Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. 
-                    Je suis là pour vous aider à optimiser votre patrimoine et répondre à vos questions. 
-                    Quel aspect de votre gestion patrimoniale vous intéresse particulièrement ?"""
-                elif intent == "question_patrimoine":
-                    return f"""Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. 
-                    Je vois que vous vous intéressez à {initial_query or 'la gestion de patrimoine'}. 
-                    Pour vous apporter les meilleures recommandations, j'aimerais en savoir un peu plus 
-                    sur vous. Tout d'abord, comment dois-je vous appeler ?"""
-            
-            # Pour les interactions suivantes
-            prompt = f'''En tant que conseillère en gestion de patrimoine, génère une réponse naturelle qui:
-            1. Prend en compte le message actuel: {message!r}
-            2. Fait référence à la question initiale si pertinent: {initial_query!r}
-            3. Accuse réception des informations si présentes
-            4. Pose la prochaine question de manière naturelle: {next_question!r}
-            5. Maintient un ton professionnel et chaleureux
-            
-            Informations déjà collectées:
-            {json.dumps(collected_info, indent=2)}'''
-            
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine empathique et professionnelle."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.7
             )
-            
-            return response.choices[0].message.content
-            
+    
+            response['content'] = chat_response.choices[0].message.content
+    
+            # Ajoute les options si nécessaire
+            if next_question and next_question.get('type') == 'choice':
+                response['type'] = 'choice'
+                response['options'] = next_question['options']
+    
+            return response
+    
         except Exception as e:
             print(f"Erreur de génération de réponse: {str(e)}")
-            return "Je suis désolée, pourriez-vous reformuler votre demande ?"
+            return {
+                'type': 'text',
+                'content': "Je suis désolée, pourriez-vous reformuler votre demande ?",
+                'options': []
+            }
     
     def get_conversation_messages(self) -> List[Dict]:
         """Récupère l'historique des messages de la conversation actuelle"""
