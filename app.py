@@ -21,25 +21,51 @@ async def chat():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({'error': 'Données manquantes'}), 400
+            return jsonify({
+                'reponse': {
+                    'content': 'Données manquantes',
+                    'type': 'error',
+                    'options': []
+                }
+            }), 400
 
         question = data.get('question', '').strip()
         conversation_id = data.get('conversation_id', '')
 
         if not question:
-            return jsonify({'error': 'Question manquante'}), 400
+            return jsonify({
+                'reponse': {
+                    'content': 'Question manquante',
+                    'type': 'error',
+                    'options': []
+                }
+            }), 400
 
         # Utiliser le chatbot pour obtenir la réponse
         response = await chatbot.repondre_question(question, conversation_id)
         
-        return jsonify(response)
+        # Structurer la réponse pour le frontend
+        formatted_response = {
+            'reponse': {
+                'content': response.get('content', ''),
+                'type': response.get('type', 'text'),
+                'options': response.get('options', [])
+            },
+            'conversation_id': conversation_id
+        }
+
+        return jsonify(formatted_response)
 
     except Exception as e:
         print(f"Erreur serveur: {str(e)}")
         traceback.print_exc()
         return jsonify({
-            'error': 'Erreur serveur',
-            'details': str(e)
+            'reponse': {
+                'content': "Une erreur s'est produite. Veuillez réessayer.",
+                'type': 'error',
+                'options': []
+            },
+            'error': str(e)
         }), 500
 
 if __name__ == '__main__':
