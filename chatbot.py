@@ -414,54 +414,60 @@ class ChatBot:
             return "Je suis désolée, je ne peux pas générer l'analyse pour le moment."
 
 
-    async def repondre_question(self, question: str, conversation_id: str) -> dict:
-        try:
-            conversation = self.conv_storage.get_conversation(conversation_id)
+async def repondre_question(self, question: str, conversation_id: str) -> dict:
+    try:
+        conversation = self.conv_storage.get_conversation(conversation_id)
+        collected_info = conversation['info_collected']
+
+        # Enregistrer la question initiale si c'est le premier message
+        if not collected_info.get('initial_query'):
+            self.conv_storage.update_info(conversation_id, {'initial_query': question})
             collected_info = conversation['info_collected']
-    
-            # Enregistrer la question initiale si c'est le premier message
-            if not collected_info.get('initial_query'):
-                self.conv_storage.update_info(conversation_id, {'initial_query': question})
-    
-            # Extraction des informations du message
-            extracted_info = await self.extract_info_from_message(question)
-            field, next_info = self.info_collector.get_next_info(collected_info)
-    
-            # Si des informations ont été extraites, les valider et mettre à jour
-            if extracted_info:
-                if field in extracted_info:
-                    is_valid, error_message = self.info_collector.validate_input(
-                        field,
-                        extracted_info[field],
-                        collected_info
-                    )
-                    if is_valid:
-                        self.conv_storage.update_info(conversation_id, {field: extracted_info[field]})
-                        await self.update_database(conversation_id, {field: extracted_info[field]})
-                        collected_info = conversation['info_collected']  # Mettre à jour les infos collectées
-                        field, next_info = self.info_collector.get_next_info(collected_info)
-                    else:
-                        return {
-                            'type': 'text',
-                            'content': error_message or "Cette réponse ne semble pas valide. Pourriez-vous réessayer ?",
-                            'options': []
-                        }
-    
-            # Vérifier si la collecte est terminée
-            if self.info_collector.is_collection_complete(collected_info):
-                return {
-                    'type': 'text',
-                    'content': await self.generer_analyse_finale(collected_info),
-                    'options': []
-                }
-    
-            # Générer la prochaine question
-            return await self.generate_response(question, field, next_info, collected_info)
-    
-        except Exception as e:
-            print(f"Error in repondre_question: {str(e)}")
+
+        # Extraction des informations du message
+        extracted_info = await self.extract_info_from_message(question)
+        
+        # Mise à jour des informations extraites
+        info_updated = False
+        for field, value in extracted_info.items():
+            if field not in collected_info:
+                is_valid, error_message = self.info_collector.validate_input(field, value, collected_info)
+                if is_valid:
+                    self.conv_storage.update_info(conversation_id, {field: value})
+                    await self.update_database(conversation_id, {field: value})
+                    collected_info = conversation['info_collected']
+                    info_updated = True
+                else:
+                    return {
+                        'type': 'text',
+                        'content': error_message or "Cette information ne semble pas valide. Pourriez-vous réessayer ?",
+                        'options': []
+                    }
+
+        # Obtenir la prochaine information nécessaire
+        field, next_info = self.info_collector.get_next_info(collected_info)
+
+        # Vérifier si la collecte est terminée
+        if self.info_collector.is_collection_complete(collected_info):
             return {
                 'type': 'text',
-                'content': "Je suis désolée, une erreur s'est produite. Pourriez-vous reformuler votre réponse ?",
+                'content': await self.generer_analyse_finale(collected_info),
                 'options': []
             }
+
+        # Générer la prochaine question
+        response = await self.generate_response(question, field, next_info, collected_info)
+        
+        # Si des informations ont été mises à jour mais la réponse contient "enchantée", la modifier
+        if info_updated and "enchantée" in response.get('content', ''):
+            response['content'] = response['content'].replace("enchantée", "").replace("Bonjour", "Merci")
+        
+        return response
+
+    except Exception as e:
+        print(f"Error in repondre_question: {str(e)}")
+        return {
+            'type': 'text',
+            'content': "Je suis désolée, une erreur s'est produite. Pourriez-vous reformuler votre réponse ?",
+            'options': []
+        }
