@@ -51,15 +51,23 @@ class InfoCollector:
                 'field': 'initial_query',
                 'type': 'text',
                 'store': False,
-                'required': False  # Ajout de l'attribut required
+                'required': False
             },
             {
-                'field': 'name',
-                'question': "Pour commencer et mieux vous conseiller, pourriez-vous me donner votre nom et prénom ?",
+                'field': 'last_name',
+                'question': "Pour commencer, quel est votre nom ?",
                 'required': True,
                 'type': 'text',
-                'validator': lambda x: len(x.split()) >= 2,
-                'error_message': "J'ai besoin de votre nom complet pour mieux vous accompagner."
+                'validator': lambda x: len(x.strip()) > 1,
+                'error_message': "Pourriez-vous me donner votre nom ?"
+            },
+            {
+                'field': 'first_name',
+                'question': "Et votre prénom ?",
+                'required': True,
+                'type': 'text',
+                'validator': lambda x: len(x.strip()) > 1,
+                'error_message': "Pourriez-vous me donner votre prénom ?"
             },
             {
                 'field': 'email',
@@ -294,34 +302,42 @@ class ChatBot:
             conversation = self.conv_storage.get_conversation(conversation_id)
             lead_id = conversation.get('lead_id')
             
-            # Gestion des leads
             if not lead_id:
+                # Vérifier si l'email existe déjà
+                if 'email' in info:
+                    existing_lead = self.supabase.table('leads').select('id').eq('email', info['email']).execute()
+                    if existing_lead.data:
+                        lead_id = existing_lead.data[0]['id']
+                        conversation['lead_id'] = lead_id
+                        return
+    
                 lead_data = {
                     "status": "nouveau",
                     "source": "chatbot",
                     "created_at": datetime.utcnow().isoformat()
                 }
                 
-                if 'name' in info:
-                    name_parts = info['name'].split()
-                    lead_data["first_name"] = name_parts[0]
-                    if len(name_parts) > 1:
-                        lead_data["last_name"] = ' '.join(name_parts[1:])
-                
+                if 'first_name' in info:
+                    lead_data["first_name"] = info['first_name']
+                if 'last_name' in info:
+                    lead_data["last_name"] = info['last_name']
                 if 'email' in info:
                     lead_data["email"] = info['email']
                 if 'phone' in info:
                     lead_data["phone"] = info['phone']
-                
-                lead_response = self.supabase.table('leads').insert(lead_data).execute()
-                lead_id = lead_response.data[0]['id']
-                conversation['lead_id'] = lead_id
-                
-                self.supabase.table('conversations').insert({
-                    "lead_id": lead_id,
-                    "conversation_id": conversation_id,
-                    "status": "en_cours"
-                }).execute()
+    
+                if lead_id:
+                    self.supabase.table('leads').update(lead_data).eq('id', lead_id).execute()
+                else:
+                    lead_response = self.supabase.table('leads').insert(lead_data).execute()
+                    lead_id = lead_response.data[0]['id']
+                    conversation['lead_id'] = lead_id
+                    
+                    self.supabase.table('conversations').insert({
+                        "lead_id": lead_id,
+                        "conversation_id": conversation_id,
+                        "status": "en_cours"
+                    }).execute()
             else:
                 lead_update = {}
                 if 'email' in info:
