@@ -49,7 +49,8 @@ class InfoCollector:
             {
                 'field': 'initial_query',
                 'type': 'text',
-                'store': False
+                'store': False,
+                'required': False  # Ajout de l'attribut required
             },
             {
                 'field': 'name',
@@ -127,7 +128,9 @@ class InfoCollector:
     def get_next_info(self, collected_info: dict) -> tuple:
         """Détermine la prochaine information à collecter"""
         for info in self.info_sequence:
-            if info['field'] not in collected_info or not collected_info[info['field']]:
+            if info['field'] not in collected_info or (
+                info.get('required', True) and not collected_info[info['field']]
+            ):
                 question = info.get('question', '')
                 if '{first_name}' in question and 'name' in collected_info:
                     first_name = collected_info['name'].split()[0]
@@ -138,6 +141,14 @@ class InfoCollector:
                     'options': info.get('options', [])
                 }
         return None, None
+
+    def is_collection_complete(self, collected_info: dict) -> bool:
+        """Vérifie si toutes les informations requises ont été collectées"""
+        return all(
+            info['field'] in collected_info and 
+            (not info.get('required', True) or collected_info[info['field']])
+            for info in self.info_sequence 
+        )
 
     def validate_input(self, field: str, value: str, collected_info: dict) -> tuple:
         """Valide une entrée utilisateur"""
