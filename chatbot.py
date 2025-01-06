@@ -347,20 +347,19 @@ class ChatBot:
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
-            # Récupération ou création de la conversation
             conversation = self.conv_storage.get_conversation(conversation_id)
             
-            # Extraction et validation des informations
+            # Définir la question initiale si c'est le premier message
+            if not conversation.get('initial_query'):
+                self.conv_storage.set_initial_query(conversation_id, question)
+                
             extracted_info = await self.extract_info_from_message(question)
             if extracted_info:
-                for field, value in extracted_info.items():
-                    if self.info_collector.validate_input(field, value):
-                        self.conv_storage.update_info(conversation_id, {field: value})
-                        await self.update_database(conversation_id, {field: value})
-
+                self.conv_storage.update_info(conversation_id, extracted_info)
+                await self.update_database(conversation_id, extracted_info)
+    
             collected_info = self.conv_storage.get_collected_info(conversation_id)
             
-            # Vérification de la complétion
             if self.info_collector.is_collection_complete(collected_info):
                 analysis = await self.generer_analyse_finale(collected_info, conversation.get('initial_query'))
                 return {
@@ -369,26 +368,18 @@ class ChatBot:
                     'options': []
                 }
             
-            # Obtention de la prochaine question
             field, next_question = self.info_collector.get_next_question(collected_info)
-            response = await self.generate_response(question, collected_info, next_question)
-
-            # Enregistrement des messages
-            self.conv_storage.add_message(conversation_id, {
-                'role': 'user',
-                'content': question
-            })
-            self.conv_storage.add_message(conversation_id, {
-                'role': 'assistant',
-                'content': response
-            })
-
-            return response
-
+            return await self.generate_response(
+                question, 
+                collected_info, 
+                next_question,
+                conversation.get('initial_query')
+            )
+    
         except Exception as e:
             print(f"Error in repondre_question: {str(e)}")
             return {
                 'type': 'text',
-                'content': "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?",
+                'content': "Pourriez-vous reformuler ?",
                 'options': []
             }
