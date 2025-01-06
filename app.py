@@ -22,14 +22,11 @@ async def chat():
         print("Nouvelle requête reçue")
         data = request.get_json()
         print(f"Données reçues : {data}")
-        data = request.get_json()
+
         if not data:
             return jsonify({
-                'reponse': {
-                    'content': 'Données manquantes',
-                    'type': 'error',
-                    'options': []
-                }
+                'reponse': "Données manquantes",
+                'type': 'error'
             }), 400
 
         question = data.get('question', '').strip()
@@ -37,38 +34,30 @@ async def chat():
 
         if not question:
             return jsonify({
-                'reponse': {
-                    'content': 'Question manquante',
-                    'type': 'error',
-                    'options': []
-                }
+                'reponse': "Question manquante",
+                'type': 'error'
             }), 400
 
-        # Utiliser le chatbot pour obtenir la réponse
+        # Obtenir la réponse du chatbot
         response = await chatbot.repondre_question(question, conversation_id)
-        
+        print(f"Réponse du chatbot : {response}")
+
         # Structurer la réponse pour le frontend
         formatted_response = {
-            'reponse': {
-                'content': response.get('content', ''),
-                'type': response.get('type', 'text'),
-                'options': response.get('options', [])
-            },
-            'conversation_id': conversation_id
+            'reponse': response.get('content', ''),
+            'type': response.get('type', 'text'),
+            'options': response.get('options', [])
         }
 
+        print(f"Réponse formatée : {formatted_response}")
         return jsonify(formatted_response)
 
     except Exception as e:
         print(f"Erreur serveur: {str(e)}")
         traceback.print_exc()
         return jsonify({
-            'reponse': {
-                'content': "Une erreur s'est produite. Veuillez réessayer.",
-                'type': 'error',
-                'options': []
-            },
-            'error': str(e)
+            'reponse': "Une erreur s'est produite. Veuillez réessayer.",
+            'type': 'error'
         }), 500
 
 if __name__ == '__main__':
