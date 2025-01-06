@@ -54,20 +54,20 @@ class InfoCollector:
                 'required': False
             },
             {
-                'field': 'last_name',
-                'question': "Pour commencer, quel est votre nom ?",
-                'required': True,
-                'type': 'text',
-                'validator': lambda x: len(x.strip()) > 1,
-                'error_message': "Pourriez-vous me donner votre nom ?"
-            },
-            {
                 'field': 'first_name',
-                'question': "Et votre prénom ?",
+                'question': "Pour commencer, quel est votre prénom ?",
                 'required': True,
                 'type': 'text',
                 'validator': lambda x: len(x.strip()) > 1,
                 'error_message': "Pourriez-vous me donner votre prénom ?"
+            },
+            {
+                'field': 'last_name',
+                'question': "Et votre nom de famille ?",
+                'required': True,
+                'type': 'text',
+                'validator': lambda x: len(x.strip()) > 1,
+                'error_message': "Pourriez-vous me donner votre nom de famille ?"
             },
             {
                 'field': 'email',
@@ -203,49 +203,50 @@ class ChatBot:
 
     async def extract_info_from_message(self, message: str) -> dict:
         try:
-            # Traitement spécial pour l'âge
+            # Vérifier d'abord si c'est un nom
+            words = message.strip().split()
+            if len(words) == 2:
+                return {
+                    'first_name': words[0].strip().capitalize(),
+                    'last_name': words[1].strip().capitalize()
+                }
+            elif len(words) == 1 and not any(char.isdigit() for char in words[0]):
+                return {'first_name': words[0].strip().capitalize()}
+    
+            # Vérifier l'âge
             age_match = re.search(r'\b(\d+)(?:\s*(?:ans?))?\b', message)
-            if age_match:
+            if age_match and not '@' in message and not any(c.isalpha() for c in message.replace('ans', '')):
                 age = age_match.group(1)
                 if 18 <= int(age) <= 100:
                     return {'age': age}
     
-            system_prompt = "Extrais les informations personnelles du message."
-            
-            user_prompt = f"""Format JSON avec uniquement les informations présentes :
-            - first_name: prénom
-            - last_name: nom
-            - email: adresse email
-            - phone: numéro téléphone
-            - age: âge (nombre uniquement)
-            - profession: métier actuel
-            - revenus: revenus annuels
-            - patrimoine: montant patrimoine
+            # Vérifier l'email
+            if '@' in message and '.' in message:
+                email = message.strip()
+                if '@' in email and '.' in email.split('@')[1]:
+                    return {'email': email.lower()}
     
-            Message: {message}"""
+            # Vérifier le téléphone
+            phone = ''.join(filter(str.isdigit, message))
+            if len(phone) == 10 and phone.isdigit():
+                return {'phone': phone}
     
+            # Pour les autres cas, utiliser GPT
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4",
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "system", "content": "Extrais uniquement les informations explicitement mentionnées."},
+                    {"role": "user", "content": f"""Extrait en JSON :
+                        - profession: métier exact mentionné
+                        - income: tranche de revenus
+                        - patrimoine: montant patrimoine
+                        Message: {message}"""}
                 ],
                 temperature=0.1,
                 response_format={"type": "json_object"}
             )
     
-            extracted_info = json.loads(response.choices[0].message.content)
-            
-            # Nettoyage des données
-            cleaned_info = {}
-            for k, v in extracted_info.items():
-                if v and str(v).strip():
-                    if k in ['first_name', 'last_name']:
-                        cleaned_info[k] = v.strip().capitalize()
-                    else:
-                        cleaned_info[k] = v.strip() if isinstance(v, str) else v
-    
-            return cleaned_info
+            return json.loads(response.choices[0].message.content)
     
         except Exception as e:
             print(f"Error in extract_info_from_message: {str(e)}")
