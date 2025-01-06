@@ -1,21 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert } from '@/components/ui/alert';
 
-const ChatbotComponent = () => {
+const ChatComponent = () => {
   const [messages, setMessages] = useState([]);
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
+  const [conversationId, setConversationId] = useState('');
   const messagesEndRef = useRef(null);
-  
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY = 2000;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  useEffect(() => {
+    // Initialiser la conversation
+    const newConversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setConversationId(newConversationId);
+    
+    // Message de bienvenue
+    setMessages([{
+      type: 'bot',
+      content: "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Comment puis-je vous aider aujourd'hui ?",
+      messageType: 'welcome'
+    }]);
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -25,18 +34,18 @@ const ChatbotComponent = () => {
     e.preventDefault();
     if (!userInput.trim() || isLoading) return;
 
-    const question = userInput.trim();
-    setUserInput('');
-    setError(null);
-    setIsLoading(true);
-
-    // Ajouter le message utilisateur immédiatement
-    setMessages(prev => [...prev, {
-      type: 'user',
-      content: question
-    }]);
-
     try {
+      setIsLoading(true);
+      setError(null);
+      const question = userInput.trim();
+      setUserInput('');
+
+      // Ajouter le message utilisateur
+      setMessages(prev => [...prev, {
+        type: 'user',
+        content: question
+      }]);
+
       const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
         method: 'POST',
         headers: {
@@ -46,7 +55,7 @@ const ChatbotComponent = () => {
         },
         body: JSON.stringify({
           question,
-          conversation_id: localStorage.getItem('chatConversationId') || `conv_${Date.now()}`
+          conversation_id: conversationId
         })
       });
 
@@ -56,33 +65,17 @@ const ChatbotComponent = () => {
 
       const data = await response.json();
       
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
+      // Ajouter le message du bot
       setMessages(prev => [...prev, {
         type: 'bot',
-        content: data.reponse
+        content: data.reponse.content,
+        messageType: data.reponse.type,
+        options: data.reponse.options
       }]);
-      
-      setRetryCount(0); // Réinitialiser le compteur après un succès
 
     } catch (error) {
+      setError("Une erreur est survenue lors de l'envoi du message. Veuillez réessayer.");
       console.error('Erreur:', error);
-      setError(error.message);
-      
-      if (retryCount < MAX_RETRIES) {
-        setTimeout(() => {
-          setRetryCount(prev => prev + 1);
-          handleSubmit(e);
-        }, RETRY_DELAY);
-      } else {
-        setMessages(prev => [...prev, {
-          type: 'bot',
-          content: "Je suis désolée, je rencontre des difficultés techniques. Pourriez-vous reformuler votre question différemment ?",
-          isError: true
-        }]);
-      }
     } finally {
       setIsLoading(false);
     }
@@ -90,26 +83,39 @@ const ChatbotComponent = () => {
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
+      {error && (
+        <Alert variant="destructive" className="m-2">
+          {error}
+        </Alert>
+      )}
+      
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              {error}
-            </AlertDescription>
-          </Alert>
-        )}
-        
         {messages.map((msg, idx) => (
-          <div key={idx} 
-               className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} 
-                          message-animation`}>
-            <div className={`max-w-[80%] p-4 rounded-lg shadow-sm
-              ${msg.type === 'user' 
-                ? 'bg-cyan-500 text-white rounded-br-none' 
-                : 'bg-white rounded-bl-none'}
-              ${msg.isError ? 'bg-red-50 text-red-600 border border-red-200' : ''}`}>
-              {msg.content}
+          <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[80%] p-4 rounded-lg ${
+                msg.type === 'user'
+                  ? 'bg-cyan-500 text-white rounded-br-none'
+                  : 'bg-white shadow-md rounded-bl-none'
+              }`}
+            >
+              <div className="whitespace-pre-wrap">{msg.content}</div>
+              {msg.options && msg.options.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {msg.options.map((option, optIdx) => (
+                    <button
+                      key={optIdx}
+                      onClick={() => {
+                        setUserInput(option);
+                        handleSubmit({ preventDefault: () => {} });
+                      }}
+                      className="w-full p-2 text-left hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors"
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -129,9 +135,9 @@ const ChatbotComponent = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className={`px-6 py-3 bg-cyan-500 text-white rounded-lg font-medium 
-              ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-cyan-600'}
-              transition-all duration-200`}
+            className={`px-6 py-3 bg-cyan-500 text-white rounded-lg font-medium ${
+              isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-cyan-600'
+            }`}
           >
             {isLoading ? 'Envoi...' : 'Envoyer'}
           </button>
@@ -141,4 +147,4 @@ const ChatbotComponent = () => {
   );
 };
 
-export default ChatbotComponent;
+export default ChatComponent;
