@@ -311,7 +311,14 @@ class ChatBot:
             conversation = self.conv_storage.get_conversation(conversation_id)
             lead_id = conversation.get('lead_id')
             
+            # Vérifier si une conversation existe déjà
             if not lead_id:
+                existing_conversation = self.supabase.table('conversations').select('lead_id').eq('conversation_id', conversation_id).execute()
+                if existing_conversation.data:
+                    lead_id = existing_conversation.data[0]['lead_id']
+                    conversation['lead_id'] = lead_id
+                    return
+    
                 # Vérifier si l'email existe déjà
                 if 'email' in info:
                     existing_lead = self.supabase.table('leads').select('id').eq('email', info['email']).execute()
@@ -323,18 +330,11 @@ class ChatBot:
                 lead_data = {
                     "status": "nouveau",
                     "source": "chatbot",
-                    "created_at": datetime.utcnow().isoformat()
+                    "created_at": datetime.utcnow().isoformat(),
+                    **{k: info[k] for k in ['first_name', 'last_name', 'email', 'phone'] if k in info}
                 }
-                
-                if 'first_name' in info:
-                    lead_data["first_name"] = info['first_name']
-                if 'last_name' in info:
-                    lead_data["last_name"] = info['last_name']
-                if 'email' in info:
-                    lead_data["email"] = info['email']
-                if 'phone' in info:
-                    lead_data["phone"] = info['phone']
     
+                # Créer ou mettre à jour le lead
                 if lead_id:
                     self.supabase.table('leads').update(lead_data).eq('id', lead_id).execute()
                 else:
@@ -342,63 +342,43 @@ class ChatBot:
                     lead_id = lead_response.data[0]['id']
                     conversation['lead_id'] = lead_id
                     
-                    self.supabase.table('conversations').insert({
+                    # Créer la conversation
+                    self.supabase.table('conversations').upsert({
                         "lead_id": lead_id,
                         "conversation_id": conversation_id,
                         "status": "en_cours"
                     }).execute()
-            else:
-                lead_update = {}
-                if 'email' in info:
-                    lead_update["email"] = info['email']
-                if 'phone' in info:
-                    lead_update["phone"] = info['phone']
-                
-                if lead_update:
-                    self.supabase.table('leads').update(lead_update).eq('id', lead_id).execute()
-    
-            def convert_income(value):
-                ranges = {
-                    "Moins de 30 000€": 30000,
-                    "30 000€ - 50 000€": 50000,
-                    "50 000€ - 100 000€": 100000,
-                    "Plus de 100 000€": 150000
+            
+            # Mettre à jour les informations patrimoniales
+            if lead_id:
+                conversions = {
+                    'income': {"Moins de 30 000€": 30000, "30 000€ - 50 000€": 50000,
+                              "50 000€ - 100 000€": 100000, "Plus de 100 000€": 150000},
+                    'patrimoine': {"Moins de 50 000€": 50000, "50 000€ - 200 000€": 200000,
+                                 "200 000€ - 500 000€": 500000, "Plus de 500 000€": 1000000}
                 }
-                return ranges.get(value, 0)
-    
-            def convert_patrimoine(value):
-                ranges = {
-                    "Moins de 50 000€": 50000,
-                    "50 000€ - 200 000€": 200000,
-                    "200 000€ - 500 000€": 500000,
-                    "Plus de 500 000€": 1000000
-                }
-                return ranges.get(value, 0)
-            
-            # Mapping des champs pour patrimoine_info
-            patrimoine_fields = {
-                'age': ('age', int),
-                'profession': ('profession', str),
-                'income': ('revenus_annuels', convert_income),
-                'patrimoine': ('patrimoine_total', convert_patrimoine),
-                'objectifs': ('objectifs', lambda x: [x])
-            }
-            
-            patrimoine_data = {"lead_id": lead_id}
-            
-            for key, (db_field, converter) in patrimoine_fields.items():
-                if key in info:
-                    try:
-                        patrimoine_data[db_field] = converter(info[key])
-                    except (ValueError, TypeError) as e:
-                        print(f"Erreur de conversion pour {key}: {e}")
-            
-            if len(patrimoine_data) > 1:
-                self.supabase.table('patrimoine_info').upsert({
-                    **patrimoine_data,
-                    "updated_at": datetime.utcnow().isoformat()
-                }).execute()
                 
+                patrimoine_fields = {
+                    'age': ('age', int),
+                    'profession': ('profession', str),
+                    'income': ('revenus_annuels', lambda x: conversions['income'].get(x, 0)),
+                    'patrimoine': ('patrimoine_total', lambda x: conversions['patrimoine'].get(x, 0))
+                }
+                
+                patrimoine_data = {"lead_id": lead_id}
+                for key, (db_field, converter) in patrimoine_fields.items():
+                    if key in info:
+                        try:
+                            patrimoine_data[db_field] = converter(info[key])
+                        except (ValueError, TypeError) as e:
+                            print(f"Erreur de conversion pour {key}: {e}")
+                
+                if len(patrimoine_data) > 1:
+                    self.supabase.table('patrimoine_info').upsert({
+                        **patrimoine_data,
+                        "updated_at": datetime.utcnow().isoformat()
+                    }).execute()
+    
         except Exception as e:
             print(f"Erreur de mise à jour de la base de données: {str(e)}")
             raise
