@@ -68,6 +68,19 @@ class InfoCollector:
                 'validator': lambda x: x.replace(' ', '').isdigit() and len(x.replace(' ', '')) == 10
             },
             {
+                'field': 'profession',
+                'question': "Quelle est votre situation professionnelle actuelle ?",
+                'required': True,
+                'type': 'text'
+            },
+            {
+                'field': 'age',
+                'question': "Quel âge avez-vous ?",
+                'required': True,
+                'type': 'text',
+                'validator': lambda x: x.isdigit() and 18 <= int(x) <= 100
+            },
+            {
                 'field': 'income',
                 'question': "Dans quelle tranche de revenus annuels vous situez-vous ?",
                 'required': True,
@@ -81,7 +94,7 @@ class InfoCollector:
             },
             {
                 'field': 'patrimoine',
-                'question': "Quel est le montant approximatif de votre patrimoine ?",
+                'question': "Quel est le montant approximatif de votre patrimoine actuel ?",
                 'required': True,
                 'type': 'choice',
                 'options': [
@@ -190,48 +203,47 @@ class ChatBot:
             return {}
 
     async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
-            try:
-                response = {
-                    'type': 'text',
-                    'content': '',
-                    'options': []
-                }
+        try:
+            response = {
+                'type': 'text',
+                'content': '',
+                'options': []
+            }
     
-                name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
-                greeting = f"Bonjour {name}, " if name else "Bonjour ! "
+            name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
     
-                if not collected_info:
-                    response['content'] = f"{greeting}Je suis Emma, votre conseillère. {next_question['question']}"
-                    return response
+            system_prompt = "Tu es Emma, une conseillère patrimoniale professionnelle. Réponds de manière naturelle et concise. Ne mentionne pas les données techniques."
     
-                system_prompt = "Emma: conseillère patrimoniale professionnelle et concise. Objectif: collecter les informations client."
+            user_prompt = f"""En te basant sur ce contexte :
+            - Question actuelle : {message}
+            - Prochaine information nécessaire : {next_question['question'] if next_question else 'Analyse finale'}
+            
+            Génère une réponse naturelle qui guide vers la prochaine question."""
     
-                user_content = f"Message: {message}\nInfo collectées: {json.dumps(collected_info, ensure_ascii=False)}\nQuestion suivante: {next_question['question'] if next_question else 'Analyse finale'}"
+            chat_completion = self.client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7
+            )
+            
+            response['content'] = chat_completion.choices[0].message.content
     
-                chat_completion = self.client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_content}
-                    ],
-                    temperature=0.5
-                )
-                
-                response['content'] = chat_completion.choices[0].message.content
+            if next_question and next_question.get('type') == 'choice':
+                response['type'] = 'choice'
+                response['options'] = next_question.get('options', [])
     
-                if next_question and next_question.get('type') == 'choice':
-                    response['type'] = 'choice'
-                    response['options'] = next_question.get('options', [])
+            return response
     
-                return response
-    
-            except Exception as e:
-                print(f"Error: {str(e)}")
-                return {
-                    'type': 'text',
-                    'content': "Pourriez-vous reformuler ?",
-                    'options': []
-                }
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            return {
+                'type': 'text',
+                'content': "Je suis désolée, pourriez-vous reformuler votre réponse ?",
+                'options': []
+            }
     
     def get_conversation_messages(self) -> List[Dict]:
         """Récupère l'historique des messages de la conversation actuelle"""
