@@ -47,25 +47,41 @@ class InfoCollector:
     def __init__(self):
         self.info_sequence = [
             {
+                'field': 'initial_query',
+                'type': 'text',
+                'store': False
+            },
+            {
                 'field': 'name',
-                'question': "Pour mieux vous conseiller, quel est votre nom et prénom ?",
+                'question': "Pour commencer et mieux vous conseiller, pourriez-vous me donner votre nom et prénom ?",
                 'required': True,
                 'type': 'text',
-                'validator': lambda x: len(x.split()) >= 2
+                'validator': lambda x: len(x.split()) >= 2,
+                'error_message': "J'ai besoin de votre nom complet pour mieux vous accompagner."
             },
             {
                 'field': 'email',
-                'question': "À quelle adresse email puis-je vous recontacter ?",
+                'question': "Merci {first_name}. Pour pouvoir vous envoyer des informations détaillées, quelle est votre adresse email ?",
                 'required': True,
                 'type': 'text',
-                'validator': lambda x: '@' in x and '.' in x.split('@')[1]
+                'validator': lambda x: '@' in x and '.' in x.split('@')[1],
+                'error_message': "Cette adresse email ne semble pas valide. Pourriez-vous la vérifier ?"
             },
             {
                 'field': 'phone',
-                'question': "Quel est votre numéro de téléphone pour un échange plus personnalisé ?",
+                'question': "Parfait. Quel est votre numéro de téléphone pour un échange plus personnalisé ?",
                 'required': True,
                 'type': 'text',
-                'validator': lambda x: x.replace(' ', '').isdigit() and len(x.replace(' ', '')) == 10
+                'validator': lambda x: x.replace(' ', '').isdigit() and len(x.replace(' ', '')) == 10,
+                'error_message': "Ce numéro ne semble pas valide. Pourriez-vous me donner un numéro à 10 chiffres ?"
+            },
+            {
+                'field': 'age',
+                'question': "Pour adapter au mieux mes conseils, quel âge avez-vous ?",
+                'required': True,
+                'type': 'text',
+                'validator': lambda x: x.isdigit() and 18 <= int(x) <= 100,
+                'error_message': "Pourriez-vous me donner votre âge en chiffres ?"
             },
             {
                 'field': 'profession',
@@ -81,13 +97,6 @@ class InfoCollector:
                     "Retraité",
                     "Autre"
                 ]
-            },
-            {
-                'field': 'age',
-                'question': "Quel âge avez-vous ?",
-                'required': True,
-                'type': 'text',
-                'validator': lambda x: x.isdigit() and 18 <= int(x) <= 100
             },
             {
                 'field': 'income',
@@ -112,44 +121,38 @@ class InfoCollector:
                     "200 000€ - 500 000€",
                     "Plus de 500 000€"
                 ]
-            },
-            {
-                'field': 'objectifs',
-                'question': "Quel est votre principal objectif patrimonial ?",
-                'required': True,
-                'type': 'choice',
-                'options': [
-                    "Préparer ma retraite",
-                    "Optimiser ma fiscalité",
-                    "Investir dans l'immobilier",
-                    "Protéger mes proches"
-                ]
             }
         ]
 
-    def get_next_question(self, collected_info: dict) -> Tuple[Optional[str], Optional[Dict]]:
-        """Récupère la prochaine question à poser"""
+    def get_next_info(self, collected_info: dict) -> tuple:
+        """Détermine la prochaine information à collecter"""
         for info in self.info_sequence:
-            field = info['field']
-            if field not in collected_info or not collected_info[field]:
-                return field, {
-                    'question': info['question'],
+            if info['field'] not in collected_info or not collected_info[info['field']]:
+                question = info.get('question', '')
+                if '{first_name}' in question and 'name' in collected_info:
+                    first_name = collected_info['name'].split()[0]
+                    question = question.format(first_name=first_name)
+                return info['field'], {
+                    'question': question,
                     'type': info.get('type', 'text'),
-                    'options': info.get('options', []),
-                    'expectedInfo': field
+                    'options': info.get('options', [])
                 }
         return None, None
 
-    def validate_input(self, field: str, value: str) -> bool:
-        """Valide une entrée utilisateur pour un champ donné"""
+    def validate_input(self, field: str, value: str, collected_info: dict) -> tuple:
+        """Valide une entrée utilisateur"""
         for info in self.info_sequence:
             if info['field'] == field:
-                if 'validator' in info:
-                    return info['validator'](value)
-                elif info['type'] == 'choice':
-                    return value in info['options']
-                return True
-        return True
+                if info.get('validator'):
+                    try:
+                        is_valid = info['validator'](value)
+                        return is_valid, info.get('error_message') if not is_valid else None
+                    except Exception:
+                        return False, info.get('error_message')
+                elif info.get('type') == 'choice':
+                    return value in info['options'], "Veuillez choisir une des options proposées."
+                return True, None
+        return True, None
 
     def is_collection_complete(self, collected_info: dict) -> bool:
         """Vérifie si toutes les informations requises ont été collectées"""
@@ -172,34 +175,28 @@ class ChatBot:
         self.supabase = create_client(supabase_url, supabase_key)
 
     async def extract_info_from_message(self, message: str) -> dict:
-        """Extrait les informations du message de l'utilisateur"""
         try:
-            system_prompt = """Tu es un expert en analyse de texte spécialisé dans l'extraction 
-            d'informations personnelles. Extrait précisément les informations suivantes si elles 
-            sont présentes dans le message. Si une information n'est pas présente, ne pas l'inclure 
-            dans le JSON."""
-
-            user_prompt = f"""Analyse ce message et extrait uniquement les informations explicitement 
-            mentionnées dans un format JSON valide. Inclure uniquement les champs avec des informations :
-            - name: prénom et nom (exactement comme mentionnés)
+            system_prompt = "Extrais les informations personnelles du message suivant."
+            
+            user_prompt = f"""Format JSON requis avec uniquement les informations présentes :
+            - name: prénom et nom
             - email: adresse email
-            - phone: numéro de téléphone
-            - age: âge (nombre uniquement)
+            - phone: numéro téléphone
+            - age: âge (nombre)
             - profession: métier actuel
-            - situation_familiale: situation familiale
-            - revenus: revenus annuels (nombre uniquement)
-            - patrimoine: montant du patrimoine (nombre uniquement)
+            - revenus: revenus annuels
+            - patrimoine: montant patrimoine
 
-            Message à analyser: {message}"""
+            Message: {message}"""
 
-            response = self.client.chat.completions.create(  # Retiré le await
-                model="gpt-4o",  # Corrigé le nom du modèle
+            response = self.client.chat.completions.create(
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
-                response_format={ "type": "json_object" }
+                response_format={"type": "json_object"}
             )
 
             extracted_info = json.loads(response.choices[0].message.content)
@@ -208,79 +205,62 @@ class ChatBot:
                    if v is not None and v != ""}
 
         except Exception as e:
-            print(f"Erreur d'extraction: {str(e)}")
+            print(f"Error in extract_info_from_message: {str(e)}")
             return {}
 
-    async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
+    async def generate_response(self, message: str, field: str, next_info: dict, collected_info: dict) -> dict:
         try:
-            response = {
-                'type': 'text',
-                'content': '',
-                'options': []
-            }
+            system_prompt = """Tu es Emma, une conseillère patrimoniale professionnelle.
+            Réponds de manière naturelle et empathique."""
     
-            # Si c'est le premier message, on commence toujours par demander le nom
-            if not collected_info.get('name'):
-                return {
-                    'type': 'text',
-                    'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux vous accompagner dans votre projet, pourriez-vous me donner votre nom et prénom ?",
-                    'options': []
-                }
-    
-            # Vérifier si on a une question suivante à poser
-            if next_question:
-                system_prompt = """Tu es Emma, une conseillère patrimoniale professionnelle. 
-                Tu dois répondre de manière naturelle et empathique, en expliquant que tu as besoin 
-                d'informations supplémentaires pour mieux conseiller la personne."""
-    
-                name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
-                
-                user_prompt = f"""En tenant compte de ces éléments :
-                - Message reçu : {message}
-                - Prénom du client : {name}
-                - Information à obtenir : {next_question['question']}
-                
-                Génère une réponse qui :
-                1. Accusé réception de sa réponse précédente si pertinent
-                2. Explique naturellement que tu as besoin d'une information supplémentaire
-                3. Pose la question suivante : {next_question['question']}"""
-    
-                chat_completion = self.client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.7
-                )
-                
-                response['content'] = chat_completion.choices[0].message.content
-    
-                if next_question.get('type') == 'choice':
-                    response['type'] = 'choice'
-                    response['options'] = next_question.get('options', [])
-    
-                return response
+            name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
             
-            # Si toutes les informations sont collectées, générer l'analyse finale
+            user_prompt = f"""Message reçu: {message}
+            Prénom client: {name}
+            Question suivante: {next_info['question']}
+            
+            Génère une réponse qui:
+            1. Accuse réception si pertinent
+            2. Pose la question suivante naturellement
+            3. Ne réponds jamais à des questions techniques, indique toujours que tu as besoin d'en savoir plus sur la personne d'abord"""
+    
+            response = self.client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7
+            )
+    
             return {
-                'type': 'text',
-                'content': await self.generer_analyse_finale(collected_info, initial_query),
-                'options': []
+                'type': next_info['type'],
+                'content': response.choices[0].message.content,
+                'options': next_info.get('options', [])
             }
     
         except Exception as e:
             print(f"Error in generate_response: {str(e)}")
             return {
                 'type': 'text',
-                'content': "Je suis désolée, pourriez-vous reformuler votre réponse ?",
+                'content': "Je suis désolée, une erreur s'est produite.",
                 'options': []
             }
     
-    def get_conversation_messages(self) -> List[Dict]:
-        """Récupère l'historique des messages de la conversation actuelle"""
-        return self._conversations.get(self._current_conversation_id, {}).get('messages', [])
-
+    # Ajout d'une méthode pour sauvegarder les messages
+    async def save_conversation_message(self, conversation_id: str, content: str, message_type: str):
+        try:
+            conversation = self.conv_storage.get_conversation(conversation_id)
+            if conversation.get('lead_id'):
+                await self.supabase.table('messages').insert({
+                    'conversation_id': conversation_id,
+                    'content': content,
+                    'message_type': message_type,
+                    'created_at': datetime.utcnow().isoformat()
+                }).execute()
+        except Exception as e:
+            print(f"Error saving message: {str(e)}")
+    
     async def update_database(self, conversation_id: str, info: dict):
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
@@ -371,27 +351,24 @@ class ChatBot:
             raise
 
 
-    async def generer_analyse_finale(self, info_collected: dict, initial_query: str) -> str:
-        """Génère une analyse finale basée sur toutes les informations collectées"""
+    async def generer_analyse_finale(self, info_collected: dict) -> str:
         try:
-            prompt = f"""En tant que conseillère en gestion de patrimoine, génère une analyse personnalisée 
-            et détaillée basée sur ces informations :
+            prompt = f"""En tant que conseillère en gestion de patrimoine, analyse cette situation:
 
-            Question initiale: {initial_query}
-            Informations collectées:
+            Question initiale: {info_collected.get('initial_query')}
+            Informations client:
             {json.dumps(info_collected, indent=2)}
 
-            L'analyse doit :
-            1. Commencer par un résumé personnalisé de la situation
-            2. Répondre spécifiquement à la question/demande initiale
-            3. Proposer 2-3 recommandations pertinentes
-            4. Expliquer les avantages de chaque recommandation
-            5. Se terminer par une proposition de rendez-vous personnalisé"""
+            Structure de l'analyse:
+            1. Résumé personnalisé
+            2. Réponse à la question initiale
+            3. 2-3 recommandations avec avantages
+            4. Proposition de rendez-vous"""
 
-            response = self.client.chat.completions.create(  # Retiré le await
-                model="gpt-4o",  # Corrigé le nom du modèle
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et empathique."},
+                    {"role": "system", "content": "Tu es Emma, conseillère patrimoniale expérimentée."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7
@@ -400,44 +377,66 @@ class ChatBot:
             return response.choices[0].message.content
 
         except Exception as e:
-            print(f"Erreur dans la génération de l'analyse finale: {str(e)}")
-            return "Je suis désolée, je rencontre des difficultés pour générer l'analyse finale. Pouvons-nous reprendre notre conversation ?"
+            print(f"Error in generer_analyse_finale: {str(e)}")
+            return "Je suis désolée, je ne peux pas générer l'analyse pour le moment. Pouvons-nous reprendre ?"
+
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
-            collected_info = self.conv_storage.get_collected_info(conversation_id)
+            collected_info = conversation['info_collected']
+
+            # Gestion de la question initiale
+            if not collected_info.get('initial_query'):
+                self.conv_storage.update_info(conversation_id, {'initial_query': question})
+
+            # Extraction et validation des informations
+            field, next_info = self.info_collector.get_next_info(collected_info)
             
-            # Si c'est le premier message
-            if not conversation.get('initial_query'):
-                self.conv_storage.set_initial_query(conversation_id, question)
-                return await self.generate_response(question, collected_info, {'question': ''}, None)
-                
+            if field == 'name' and not collected_info.get('name'):
+                return {
+                    'type': 'text',
+                    'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux vous accompagner, pourriez-vous me donner votre nom et prénom ?",
+                    'options': []
+                }
+
             extracted_info = await self.extract_info_from_message(question)
-            if extracted_info:
-                self.conv_storage.update_info(conversation_id, extracted_info)
-                await self.update_database(conversation_id, extracted_info)
-    
-            field, next_question = self.info_collector.get_next_question(collected_info)
-            
+            if extracted_info and field:
+                is_valid, error_message = self.info_collector.validate_input(
+                    field,
+                    extracted_info.get(field, ''),
+                    collected_info
+                )
+                
+                if is_valid:
+                    self.conv_storage.update_info(conversation_id, extracted_info)
+                    await self.update_database(conversation_id, extracted_info)
+                    field, next_info = self.info_collector.get_next_info(collected_info)
+                else:
+                    return {
+                        'type': 'text',
+                        'content': error_message or "Cette réponse ne semble pas valide. Pourriez-vous réessayer ?",
+                        'options': []
+                    }
+
             if self.info_collector.is_collection_complete(collected_info):
                 return {
                     'type': 'text',
-                    'content': await self.generer_analyse_finale(collected_info, conversation.get('initial_query')),
+                    'content': await self.generer_analyse_finale(collected_info),
                     'options': []
                 }
-            
-            return await self.generate_response(
-                question, 
-                collected_info, 
-                next_question,
-                conversation.get('initial_query')
-            )
-    
+            else:
+                return await self.generate_response(
+                    message=question,
+                    field=field,
+                    next_info=next_info,
+                    collected_info=collected_info
+                )
+
         except Exception as e:
             print(f"Error in repondre_question: {str(e)}")
             return {
                 'type': 'text',
-                'content': "Je suis désolée, pourriez-vous reformuler votre réponse ?",
+                'content': "Je suis désolée, une erreur s'est produite. Pourriez-vous reformuler votre réponse ?",
                 'options': []
             }
