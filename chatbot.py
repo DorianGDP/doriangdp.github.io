@@ -4,11 +4,7 @@ import os
 import json
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
-import random  # Ajout de l'import random qui était manquant
-
-# Import des classes définies précédemment
-from .conversation_storage import ConversationStorage
-from .info_collector import InfoCollector
+import random
 
 class ConversationStorage:
     """Gère le stockage des conversations en mémoire"""
@@ -118,14 +114,11 @@ class InfoCollector:
 
     def get_next_question(self, collected_info: dict, initial_query: str) -> tuple:
         """Récupère la prochaine question à poser"""
-        import random
-        
         for info in self.info_sequence:
             field = info['field']
             if field not in collected_info or not collected_info[field]:
                 question = random.choice(info['questions']).format(initial_query or "votre projet patrimonial")
                 return field, question
-                
         return None, None
 
     def is_collection_complete(self, collected_info: dict) -> bool:
@@ -135,10 +128,12 @@ class InfoCollector:
             for info in self.info_sequence 
             if info['required']
         )
+        
 class ChatBot:
     def __init__(self, api_key: str):
+        """Initialise le chatbot avec les dépendances nécessaires"""
         self.client = OpenAI(api_key=api_key)
-        self.storage = ConversationStorage()
+        self.conv_storage = ConversationStorage()  # Changed from storage to conv_storage
         self.info_collector = InfoCollector()
         
         # Initialisation de Supabase
@@ -164,14 +159,7 @@ class ChatBot:
             - revenus: revenus annuels (nombre uniquement)
             - patrimoine: montant du patrimoine (nombre uniquement)
 
-            Message à analyser: {message}
-
-            Règles importantes:
-            1. N'extrait que les informations explicitement mentionnées
-            2. Pour les noms, conserve l'ordre exact (prénom nom ou nom prénom)
-            3. Ne fait pas d'hypothèses
-            4. Pour les montants, n'extrait que les nombres
-            5. Si une information n'est pas présente, ne pas l'inclure dans le JSON"""
+            Message à analyser: {message}"""
 
             response = await self.client.chat.completions.create(
                 model="gpt-4o",
@@ -325,10 +313,10 @@ class ChatBot:
         """Traite la question et génère une réponse appropriée"""
         try:
             # Récupère ou crée la conversation
-            conversation = self.storage.get_conversation(conversation_id)
+            conversation = self.conv_storage.get_conversation(conversation_id)
             
             # Si c'est la première question, l'enregistre comme query initiale
-            self.storage.set_initial_query(conversation_id, question)
+            self.conv_storage.set_initial_query(conversation_id, question)
             initial_query = conversation.get('initial_query')
 
             # Extrait les informations du message
@@ -336,10 +324,10 @@ class ChatBot:
             
             # Met à jour les informations collectées
             if extracted_info:
-                self.storage.update_info(conversation_id, extracted_info)
+                self.conv_storage.update_info(conversation_id, extracted_info)
                 await self.update_database(conversation_id, extracted_info)
 
-            collected_info = self.storage.get_collected_info(conversation_id)
+            collected_info = self.conv_storage.get_collected_info(conversation_id)
 
             # Vérifie si toutes les informations nécessaires ont été collectées
             if self.info_collector.is_collection_complete(collected_info):
@@ -353,11 +341,11 @@ class ChatBot:
                 response = await self.generate_response(collected_info, next_question, initial_query)
 
             # Enregistre le message dans l'historique
-            self.storage.add_message({
+            self.conv_storage.add_message(conversation_id, {
                 'role': 'user',
                 'content': question
             })
-            self.storage.add_message({
+            self.conv_storage.add_message(conversation_id, {
                 'role': 'assistant',
                 'content': response
             })
