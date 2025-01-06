@@ -1,177 +1,112 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Alert } from '@/components/ui/alert';
 
-const ChatComponent = () => {
+const ImprovedChatbot = () => {
   const [messages, setMessages] = useState([]);
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [conversationId, setConversationId] = useState('');
-  const [collectedInfo, setCollectedInfo] = useState({});
-  const [isOptionsDisabled, setIsOptionsDisabled] = useState(false);
   const messagesEndRef = useRef(null);
+  const [collectedInfo, setCollectedInfo] = useState({});
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    // Initialiser la conversation avec un ID unique
-    const newConversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    setConversationId(newConversationId);
-    localStorage.setItem('chatConversationId', newConversationId);
-    
-    // Message de bienvenue personnalisé
-    setMessages([{
-      type: 'bot',
-      content: "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Pour vous offrir les meilleurs conseils, j'aimerais en savoir plus sur votre situation. Comment puis-je vous aider aujourd'hui ?",
-      messageType: 'welcome'
-    }]);
-  }, []);
-
-  // Restaurer l'ID de conversation si disponible
-  useEffect(() => {
-    const savedConversationId = localStorage.getItem('chatConversationId');
-    if (savedConversationId && !conversationId) {
-      setConversationId(savedConversationId);
+  const questions = {
+    name: {
+      text: "Pour mieux vous conseiller, quel est votre nom et prénom ?",
+      type: "text"
+    },
+    phone: {
+      text: "Quel est votre numéro de téléphone pour un échange plus personnalisé ?",
+      type: "text"
+    },
+    email: {
+      text: "À quelle adresse email puis-je vous recontacter ?",
+      type: "text"
+    },
+    income: {
+      text: "Dans quelle tranche de revenus annuels vous situez-vous ?",
+      type: "options",
+      options: [
+        "Moins de 30 000€",
+        "30 000€ - 50 000€",
+        "50 000€ - 100 000€",
+        "Plus de 100 000€"
+      ]
+    },
+    familyStatus: {
+      text: "Quelle est votre situation familiale actuelle ?",
+      type: "options",
+      options: [
+        "Célibataire",
+        "Marié(e)",
+        "En couple",
+        "Divorcé(e)",
+        "Avec enfants"
+      ]
     }
-  }, [conversationId]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const handleOptionClick = async (option) => {
-    if (isOptionsDisabled) return;
-    setIsOptionsDisabled(true);
-    
-    // Mettre à jour l'interface immédiatement
-    setUserInput(option);
-    
-    // Traiter la réponse
-    await handleSubmit({
-      preventDefault: () => {},
-      optionSelected: true
-    }, option);
-    
-    setIsOptionsDisabled(false);
   };
 
-  const formatMessage = (content) => {
-    if (typeof content !== 'string') return content;
-
-    // Remplacer les sauts de ligne par des éléments React
-    return content.split('\n').map((line, i) => (
-      <React.Fragment key={i}>
-        {line}
-        {i !== content.split('\n').length - 1 && <br />}
-      </React.Fragment>
-    ));
-  };
-
-  const handleSubmit = async (e, selectedOption = null) => {
-    e.preventDefault();
-    const messageText = selectedOption || userInput.trim();
-    
-    if ((!messageText && !selectedOption) || isLoading) return;
-
+  const sendMessage = async (message) => {
     try {
       setIsLoading(true);
-      setError(null);
-      setUserInput('');
-
-      // Ajouter le message utilisateur
-      setMessages(prev => [...prev, {
-        type: 'user',
-        content: messageText
-      }]);
-
-      const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
+      
+      // Simuler l'appel API
+      const response = await fetch('your-api-endpoint', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Origin': 'https://doriangdp.github.io'
         },
         body: JSON.stringify({
-          question: messageText,
-          conversation_id: conversationId,
-          collected_info: collectedInfo // Envoyer les informations déjà collectées
+          message,
+          collectedInfo
         })
       });
-
-      if (!response.ok) {
-        throw new Error(`Erreur HTTP: ${response.status}`);
-      }
-
+      
       const data = await response.json();
-
-      // Mettre à jour les informations collectées si présentes dans la réponse
-      if (data.collected_info) {
+      
+      // Mise à jour des informations collectées
+      if (data.collectedInfo) {
         setCollectedInfo(prev => ({
           ...prev,
-          ...data.collected_info
+          ...data.collectedInfo
         }));
       }
       
-      // Ajouter le message du bot avec formatage amélioré
-      const botMessage = {
-        type: 'bot',
-        content: data.reponse.content,
-        messageType: data.reponse.type,
-        options: data.reponse.options
-      };
-
-      setMessages(prev => [...prev, botMessage]);
-
-    } catch (error) {
-      console.error('Erreur:', error);
-      setError("Une erreur est survenue lors de l'envoi du message. Veuillez réessayer.");
+      // Ajouter la réponse du bot
+      addMessage('bot', data.response);
       
-      // Message d'erreur convivial pour l'utilisateur
-      setMessages(prev => [...prev, {
-        type: 'bot',
-        content: "Je suis désolée, j'ai rencontré une difficulté technique. Pourriez-vous reformuler votre message ?",
-        messageType: 'error'
-      }]);
+    } catch (error) {
+      addMessage('bot', "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?");
     } finally {
       setIsLoading(false);
-      scrollToBottom();
     }
+  };
+
+  const addMessage = (type, content, options = []) => {
+    setMessages(prev => [...prev, {
+      type,
+      content,
+      options
+    }]);
   };
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
-      {error && (
-        <Alert variant="destructive" className="m-2">
-          {error}
-        </Alert>
-      )}
-      
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-[80%] p-4 rounded-lg ${
-                msg.type === 'user'
-                  ? 'bg-cyan-500 text-white rounded-br-none'
-                  : 'bg-white shadow-md rounded-bl-none'
-              } ${msg.messageType === 'error' ? 'bg-red-50 text-red-600' : ''}`}
-            >
-              <div className="whitespace-pre-wrap">
-                {formatMessage(msg.content)}
-              </div>
+            <div className={`max-w-[80%] p-4 rounded-lg ${
+              msg.type === 'user' 
+                ? 'bg-cyan-500 text-white rounded-br-none'
+                : 'bg-white shadow-md rounded-bl-none'
+            }`}>
+              <div className="whitespace-pre-wrap">{msg.content}</div>
               
               {msg.options && msg.options.length > 0 && (
                 <div className="mt-3 space-y-2">
                   {msg.options.map((option, optIdx) => (
                     <button
                       key={optIdx}
-                      onClick={() => handleOptionClick(option)}
-                      disabled={isOptionsDisabled}
-                      className={`w-full p-2 text-left hover:bg-gray-100 rounded-lg border 
-                        border-gray-200 transition-colors text-gray-800
-                        ${isOptionsDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+                      onClick={() => sendMessage(option)}
+                      className="w-full p-2 text-left hover:bg-gray-100 rounded-lg border 
+                        border-gray-200 transition-colors text-gray-800"
                     >
                       {option}
                     </button>
@@ -184,7 +119,7 @@ const ChatComponent = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
+      <div className="p-4 bg-white border-t">
         <div className="flex gap-2">
           <input
             type="text"
@@ -195,17 +130,22 @@ const ChatComponent = () => {
             disabled={isLoading}
           />
           <button
-            type="submit"
+            onClick={() => {
+              if (userInput.trim()) {
+                addMessage('user', userInput);
+                sendMessage(userInput);
+                setUserInput('');
+              }
+            }}
             disabled={isLoading}
-            className={`px-6 py-3 bg-cyan-500 text-white rounded-lg font-medium 
-              ${isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-cyan-600'}`}
+            className="px-6 py-3 bg-cyan-500 text-white rounded-lg font-medium hover:bg-cyan-600"
           >
-            {isLoading ? 'Envoi...' : 'Envoyer'}
+            Envoyer
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 };
 
-export default ChatComponent;
+export default ImprovedChatbot;
