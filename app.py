@@ -19,6 +19,9 @@ chatbot = ChatBot(os.getenv("OPENAI_API_KEY"))
 @app.route('/api/chat', methods=['POST'])
 async def chat():
     try:
+        print("Nouvelle requête reçue")
+        data = request.get_json()
+        print(f"Données reçues : {data}")
         data = request.get_json()
         if not data:
             return jsonify({
