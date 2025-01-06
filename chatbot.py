@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
 import random
+import re
 
 class ConversationStorage:
     """Gère le stockage des conversations en mémoire"""
@@ -154,7 +155,16 @@ class InfoCollector:
         """Valide une entrée utilisateur"""
         for info in self.info_sequence:
             if info['field'] == field:
-                if info.get('validator'):
+                if field == 'age':
+                    try:
+                        # Nettoyer la valeur pour extraire juste le nombre
+                        age_value = ''.join(filter(str.isdigit, str(value)))
+                        if age_value and 18 <= int(age_value) <= 100:
+                            return True, None
+                        return False, "Pourriez-vous me donner votre âge (entre 18 et 100 ans) ?"
+                    except Exception:
+                        return False, "Pourriez-vous me donner votre âge en chiffres ?"
+                elif info.get('validator'):
                     try:
                         is_valid = info['validator'](value)
                         return is_valid, info.get('error_message') if not is_valid else None
@@ -162,7 +172,6 @@ class InfoCollector:
                         return False, info.get('error_message')
                 elif info.get('type') == 'choice':
                     return value in info['options'], "Veuillez choisir une des options proposées."
-                return True, None
         return True, None
 
     def is_collection_complete(self, collected_info: dict) -> bool:
@@ -187,21 +196,28 @@ class ChatBot:
 
     async def extract_info_from_message(self, message: str) -> dict:
         try:
+            # Ajouter une logique de pré-traitement pour l'âge
+            age_match = re.search(r'\b(\d+)(?:\s*(?:ans?))?\b', message)
+            if age_match:
+                age = age_match.group(1)
+                if 18 <= int(age) <= 100:
+                    return {'age': age}
+    
             system_prompt = "Extrais les informations personnelles du message suivant."
             
             user_prompt = f"""Format JSON requis avec uniquement les informations présentes :
             - name: prénom et nom
             - email: adresse email
             - phone: numéro téléphone
-            - age: âge (nombre)
+            - age: âge (nombre uniquement)
             - profession: métier actuel
             - revenus: revenus annuels
             - patrimoine: montant patrimoine
-
+    
             Message: {message}"""
-
+    
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -209,12 +225,12 @@ class ChatBot:
                 temperature=0.1,
                 response_format={"type": "json_object"}
             )
-
+    
             extracted_info = json.loads(response.choices[0].message.content)
             return {k: v.strip() if isinstance(v, str) else v 
                    for k, v in extracted_info.items() 
                    if v is not None and v != ""}
-
+    
         except Exception as e:
             print(f"Error in extract_info_from_message: {str(e)}")
             return {}
