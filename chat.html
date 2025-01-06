@@ -98,7 +98,6 @@
         // Fonction pour ajouter un message
         function appendMessage(sender, content, options = []) {
             const messageDiv = document.createElement('div');
-            messageDiv.className = 'message-container';
             messageDiv.className = 'message-container message-animation';
             
             const innerDiv = document.createElement('div');
@@ -111,7 +110,8 @@
                     : 'message-bot text-gray-800'
             }`;
             
-            contentDiv.textContent = content;
+            // S'assurer que le contenu est une chaîne de caractères
+            contentDiv.textContent = String(content);
             
             // Ajouter les boutons d'options si présents
             if (options && options.length > 0) {
@@ -140,11 +140,13 @@
             messageDiv.appendChild(innerDiv);
             messagesContainer.appendChild(messageDiv);
             
+            // Faire défiler jusqu'au dernier message
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
         // Fonction d'envoi de message
-        async function sendMessage(message = null) {  // Ajout du paramètre optionnel
+        
+        async function sendMessage(message = null) {
             const messageText = message || userInput.value.trim();
             if (!messageText) return;
         
@@ -173,19 +175,28 @@
                 }
                 
                 const data = await response.json();
+                console.log('Réponse du serveur:', data); // Pour le debug
                 
                 if (data.conversation_id) {
                     conversationId = data.conversation_id;
                     localStorage.setItem('chatConversationId', conversationId);
                 }
                 
-                // Modification ici pour gérer correctement la structure de la réponse
-                appendMessage('bot', data.reponse || data.content, data.options || []);
+                // Utiliser la réponse du bot avec vérification de la présence des champs
+                const botMessage = data.content || data.reponse || "Désolé, je n'ai pas compris votre demande.";
+                const options = data.options || [];
                 
-                // Désactiver l'input si des options sont disponibles
-                const hasOptions = data.options && data.options.length > 0;
-                userInput.disabled = hasOptions;
-                sendButton.disabled = hasOptions;
+                appendMessage('bot', botMessage, options);
+        
+                // Gestion des options s'il y en a
+                if (options && options.length > 0) {
+                    userInput.disabled = true;
+                    sendButton.disabled = true;
+                } else {
+                    userInput.disabled = false;
+                    sendButton.disabled = false;
+                    userInput.focus();
+                }
         
             } catch (error) {
                 console.error('Erreur:', error);
@@ -193,13 +204,9 @@
                     'bot',
                     "Désolé, je rencontre des difficultés techniques. Veuillez réessayer dans quelques instants."
                 );
-            } finally {
-                if (!userInput.disabled) {  // Ne réactive que si pas d'options
-                    userInput.disabled = false;
-                    sendButton.disabled = false;
-                    userInput.focus();
-                }
-            }
+                userInput.disabled = false;
+                sendButton.disabled = false;
+            } 
         }
 
         // Event Listeners
