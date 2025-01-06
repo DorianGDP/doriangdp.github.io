@@ -43,32 +43,36 @@ class ConversationStorage:
         conv = self.get_conversation(conversation_id)
         return conv.get('info_collected', {})
 
-class InfoCollector:
+class ConversationManager:
     def __init__(self):
+        self._conversations = {}
         self.info_sequence = [
             {
                 'field': 'name',
+                'question': "Pour mieux vous conseiller, quel est votre nom et prénom ?",
                 'required': True,
-                'question': "Pour mieux vous conseiller, quel est votre nom et prénom ?"
+                'type': 'text'
             },
             {
                 'field': 'email',
+                'question': "À quelle adresse email puis-je vous recontacter ?",
                 'required': True,
-                'question': "Votre email pour vous recontacter ?"
+                'type': 'text'
             },
             {
                 'field': 'phone',
+                'question': "Quel est votre numéro de téléphone pour un échange plus personnalisé ?",
                 'required': True,
-                'question': "Un numéro de téléphone où vous joindre ?"
+                'type': 'text'
             },
             {
-                'field': 'revenus',
-                'required': True,
+                'field': 'income',
                 'question': "Dans quelle tranche de revenus annuels vous situez-vous ?",
+                'required': True,
                 'type': 'choice',
                 'options': [
                     "Moins de 30 000€",
-                    "30 000€ - 50 000€", 
+                    "30 000€ - 50 000€",
                     "50 000€ - 100 000€",
                     "Plus de 100 000€"
                 ]
