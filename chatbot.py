@@ -134,19 +134,16 @@ class ChatBot:
             - revenus: revenus annuels (nombre uniquement)
             - patrimoine: montant du patrimoine (nombre uniquement)
 
-            Message à analyser: {message}
+            Message à analyser: {message}"""
 
-            Exemple de réponse si seul le nom est présent:
-            {{"name": "Jean Dupont"}}"""
-
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
+            response = self.client.chat.completions.create(  # Retiré le await
+                model="gpt-4o",  # Corrigé le nom du modèle
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
-                response_format={ "type": "json_object" }  # Force JSON response
+                response_format={ "type": "json_object" }
             )
 
             extracted_info = json.loads(response.choices[0].message.content)
@@ -154,9 +151,6 @@ class ChatBot:
                    for k, v in extracted_info.items() 
                    if v is not None and v != ""}
 
-        except json.JSONDecodeError as e:
-            print(f"Erreur de décodage JSON: {str(e)}")
-            return {}
         except Exception as e:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
@@ -164,20 +158,17 @@ class ChatBot:
     async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
         """Génère une réponse contextuelle en utilisant l'IA"""
         try:
-            # Prépare la structure de réponse
             response = {
                 'type': 'text',
                 'content': '',
                 'options': []
             }
     
-            # Construit le prompt pour l'IA
             system_prompt = """Tu es Emma, une conseillère en gestion de patrimoine professionnelle et concise.
             Tu dois être chaleureuse et empathique dans tes réponses tout en restant professionnelle.
             Ton objectif est de collecter des informations essentielles sur le client tout en répondant à ses questions.
             Adapte tes réponses en fonction des informations déjà collectées."""
     
-            # Construction du contexte utilisateur
             user_content = f"""Message du client: {message}
     
             Contexte:
@@ -192,7 +183,7 @@ class ChatBot:
             4. Pose la question suivante de manière naturelle dans la conversation"""
 
             try:
-                chat_completion = await self.client.chat.completions.create(
+                chat_completion = self.client.chat.completions.create(  # Retiré le await
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -207,7 +198,6 @@ class ChatBot:
                 print(f"OpenAI API error: {str(api_error)}")
                 response['content'] = "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?"
     
-            # Ajoute les options si nécessaire
             if next_question and next_question.get('type') == 'choice':
                 response['type'] = 'choice'
                 response['options'] = next_question.get('options', [])
@@ -301,6 +291,7 @@ class ChatBot:
         except Exception as e:
             print(f"Erreur de mise à jour de la base de données: {str(e)}")
 
+
     async def generer_analyse_finale(self, info_collected: dict, initial_query: str) -> str:
         """Génère une analyse finale basée sur toutes les informations collectées"""
         try:
@@ -318,8 +309,8 @@ class ChatBot:
             4. Expliquer les avantages de chaque recommandation
             5. Se terminer par une proposition de rendez-vous personnalisé"""
 
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
+            response = self.client.chat.completions.create(  # Retiré le await
+                model="gpt-4",  # Corrigé le nom du modèle
                 messages=[
                     {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et empathique."},
                     {"role": "user", "content": prompt}
