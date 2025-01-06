@@ -146,10 +146,11 @@ class ChatBot:
         try:
             system_prompt = """Tu es un expert en analyse de texte spécialisé dans l'extraction 
             d'informations personnelles. Extrait précisément les informations suivantes si elles 
-            sont présentes dans le message."""
+            sont présentes dans le message. Si une information n'est pas présente, ne pas l'inclure 
+            dans le JSON."""
 
             user_prompt = f"""Analyse ce message et extrait uniquement les informations explicitement 
-            mentionnées au format JSON :
+            mentionnées dans un format JSON valide. Inclure uniquement les champs avec des informations :
             - name: prénom et nom (exactement comme mentionnés)
             - email: adresse email
             - phone: numéro de téléphone
@@ -159,7 +160,10 @@ class ChatBot:
             - revenus: revenus annuels (nombre uniquement)
             - patrimoine: montant du patrimoine (nombre uniquement)
 
-            Message à analyser: {message}"""
+            Message à analyser: {message}
+
+            Exemple de réponse si seul le nom est présent:
+            {{"name": "Jean Dupont"}}"""
 
             response = self.client.chat.completions.create(
                 model="gpt-4o",
@@ -167,23 +171,28 @@ class ChatBot:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1
+                temperature=0.1,
+                response_format={ "type": "json_object" }  # Force JSON response
             )
 
             extracted_info = json.loads(response.choices[0].message.content)
             return {k: v.strip() if isinstance(v, str) else v 
-                   for k, v in extracted_info.items()}
+                   for k, v in extracted_info.items() 
+                   if v is not None and v != ""}
 
+        except json.JSONDecodeError as e:
+            print(f"Erreur de décodage JSON: {str(e)}")
+            return {}
         except Exception as e:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
 
-
-    async def generate_response(self, message: str, collected_info: dict, next_question: str, initial_query: str) -> str:
+    async def generate_response(self, message: str, collected_info: dict, next_question: Optional[str], initial_query: Optional[str]) -> str:
         """Génère une réponse contextuelle en tenant compte du message de l'utilisateur"""
         try:
             # Détermine si c'est la première interaction
-            is_first_interaction = len(self.conv_storage.get_conversation_messages()) == 0
+            conversation = self.conv_storage.get_conversation(self.current_conversation_id)
+            is_first_interaction = len(conversation['messages']) == 0
             
             # Analyse l'intention du message
             intent_prompt = f'''Analyse ce message et détermine l'intention principale:
@@ -194,7 +203,8 @@ class ChatBot:
             - question_patrimoine: question sur la gestion de patrimoine
             - reponse_info: réponse à une demande d'information
             - autre: autre type de message
-            '''
+            
+            Réponds uniquement avec la catégorie, sans autre texte.'''
             
             intent_response = self.client.chat.completions.create(
                 model="gpt-4o",
@@ -215,9 +225,9 @@ class ChatBot:
                     Quel aspect de votre gestion patrimoniale vous intéresse particulièrement ?"""
                 elif intent == "question_patrimoine":
                     return f"""Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. 
-                    Je vois que vous vous intéressez à {initial_query}. Pour vous apporter les meilleures 
-                    recommandations, j'aimerais en savoir un peu plus sur vous. Tout d'abord, comment 
-                    dois-je vous appeler ?"""
+                    Je vois que vous vous intéressez à {initial_query or 'la gestion de patrimoine'}. 
+                    Pour vous apporter les meilleures recommandations, j'aimerais en savoir un peu plus 
+                    sur vous. Tout d'abord, comment dois-je vous appeler ?"""
             
             # Pour les interactions suivantes
             prompt = f'''En tant que conseillère en gestion de patrimoine, génère une réponse naturelle qui:
@@ -347,6 +357,9 @@ class ChatBot:
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Traite la question et génère une réponse appropriée"""
         try:
+            # Stocke l'ID de conversation actuel pour utilisation dans d'autres méthodes
+            self.current_conversation_id = conversation_id
+            
             # Récupère ou crée la conversation
             conversation = self.conv_storage.get_conversation(conversation_id)
             
@@ -373,7 +386,7 @@ class ChatBot:
                 _, next_question = self.info_collector.get_next_question(collected_info, initial_query)
                 
                 # Génère une réponse contextuelle
-                response = await self.generate_response(collected_info, next_question, initial_query)
+                response = await self.generate_response(question, collected_info, next_question, initial_query)
 
             # Enregistre le message dans l'historique
             self.conv_storage.add_message(conversation_id, {
