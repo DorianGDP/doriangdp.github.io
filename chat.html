@@ -43,6 +43,16 @@
             background: #06b6d4;
             border-radius: 3px;
         }
+        /* Ajoutez ces styles */
+        .options-button {
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .options-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background-color: #f3f4f6;
+        }
     </style>
 </head>
 <body class="h-screen flex flex-col bg-gray-50">
@@ -86,23 +96,45 @@
         const sendButton = document.getElementById('send-button');
 
         // Fonction pour ajouter un message
-        function appendMessage(sender, content, isError = false) {
+        function appendMessage(sender, content, options = []) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message-container';
+            messageDiv.className = 'message-container message-animation';
             
             const innerDiv = document.createElement('div');
             innerDiv.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
             
             const contentDiv = document.createElement('div');
-            contentDiv.className = `message-animation p-4 max-w-[80%] ${
+            contentDiv.className = `p-4 max-w-[80%] ${
                 sender === 'user' 
                     ? 'message-user text-white' 
-                    : `message-bot ${isError ? 'bg-red-50' : ''} text-gray-800`
+                    : 'message-bot text-gray-800'
             }`;
             
-            // Convertir les liens en éléments cliquables
-            content = content.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="text-blue-600 hover:underline">$1</a>');
-            contentDiv.innerHTML = content;
+            contentDiv.textContent = content;
+            
+            // Ajouter les boutons d'options si présents
+            if (options && options.length > 0) {
+                const optionsDiv = document.createElement('div');
+                optionsDiv.className = 'mt-3 space-y-2';
+                
+                options.forEach(option => {
+                    const button = document.createElement('button');
+                    button.className = 'w-full p-2 text-left hover:bg-cyan-100 rounded-lg border border-cyan-200 transition-colors';
+                    button.textContent = option;
+                    button.onclick = () => {
+                        sendMessage(option);
+                        // Désactiver tous les boutons après la sélection
+                        optionsDiv.querySelectorAll('button').forEach(btn => {
+                            btn.disabled = true;
+                            btn.className += ' opacity-50 cursor-not-allowed';
+                        });
+                    };
+                    optionsDiv.appendChild(button);
+                });
+                
+                contentDiv.appendChild(optionsDiv);
+            }
             
             innerDiv.appendChild(contentDiv);
             messageDiv.appendChild(innerDiv);
@@ -112,17 +144,17 @@
         }
 
         // Fonction d'envoi de message
-        async function sendMessage() {
-            const message = userInput.value.trim();
-            if (!message) return;
-
+        async function sendMessage(message = null) {  // Ajout du paramètre optionnel
+            const messageText = message || userInput.value.trim();
+            if (!messageText) return;
+        
             userInput.value = '';
             userInput.disabled = true;
             sendButton.disabled = true;
-
+        
             try {
-                appendMessage('user', message);
-
+                appendMessage('user', messageText);
+        
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
@@ -131,37 +163,41 @@
                         'Origin': 'https://doriangdp.github.io'
                     },
                     body: JSON.stringify({
-                        question: message,
+                        question: messageText,
                         conversation_id: conversationId
                     })
                 });
-
+        
                 if (!response.ok) {
                     throw new Error(`Erreur HTTP: ${response.status}`);
                 }
-
+        
                 const data = await response.json();
                 
-                // Mise à jour de l'ID de conversation si nécessaire
                 if (data.conversation_id) {
                     conversationId = data.conversation_id;
                     localStorage.setItem('chatConversationId', conversationId);
                 }
-
-                // Afficher la réponse
-                appendMessage('bot', data.reponse);
-
+        
+                // Afficher la réponse avec les options une seule fois
+                appendMessage('bot', data.reponse.content, data.reponse.options);
+                
+                // Désactiver l'input si des options sont disponibles
+                userInput.disabled = data.reponse.options && data.reponse.options.length > 0;
+                sendButton.disabled = userInput.disabled;
+        
             } catch (error) {
                 console.error('Erreur:', error);
                 appendMessage(
                     'bot',
-                    "Désolé, je rencontre des difficultés techniques. Veuillez réessayer dans quelques instants.",
-                    true
+                    "Désolé, je rencontre des difficultés techniques. Veuillez réessayer dans quelques instants."
                 );
             } finally {
-                userInput.disabled = false;
-                sendButton.disabled = false;
-                userInput.focus();
+                if (!userInput.disabled) {  // Ne réactive que si pas d'options
+                    userInput.disabled = false;
+                    sendButton.disabled = false;
+                    userInput.focus();
+                }
             }
         }
 
