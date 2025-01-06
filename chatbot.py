@@ -223,14 +223,18 @@ class ChatBot:
     
             system_prompt = "Tu es Emma, une conseillère patrimoniale professionnelle. Réponds de manière naturelle et concise. Ne mentionne pas les données techniques."
     
-            user_prompt = f"""En te basant sur ce contexte :
-            - Question actuelle : {message}
-            - Prochaine information nécessaire : {next_question['question'] if next_question else 'Analyse finale'}
-            
-            Génère une réponse naturelle qui guide vers la prochaine question."""
+            # Vérifier si le message contient déjà une réponse à la question précédente
+            last_field, _ = self.info_collector.get_next_question(collected_info)
+            if last_field:
+                user_prompt = f"""En te basant sur ce contexte :
+                - Question actuelle : {message}
+                - Dernière information reçue : {collected_info.get(last_field, '')}
+                - Prochaine information nécessaire : {next_question['question'] if next_question else 'Analyse finale'}
+                
+                Accuse réception de la dernière information et guide naturellement vers la prochaine question."""
     
             chat_completion = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
