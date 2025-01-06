@@ -161,57 +161,52 @@ class ChatBot:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
 
-    async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
-        """Génère une réponse contextuelle en utilisant l'IA"""
+   async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
+        """Génère une réponse contextuelle avec options si nécessaire"""
         try:
-            # Prépare la structure de réponse
-            response = {
+            # Détermine si c'est la première interaction
+            conversation = self.conv_storage.get_conversation(self.current_conversation_id)
+            is_first_interaction = len(conversation['messages']) == 0
+
+            # Pour la première interaction
+            if is_first_interaction:
+                return {
+                    'type': 'text',
+                    'content': "Bonjour ! Pour vous conseiller au mieux, quel est votre nom et prénom ?",
+                    'options': []
+                }
+
+            # Si on a une question suivante avec des options
+            if next_question and next_question.get('type') == 'choice':
+                return {
+                    'type': 'choice',
+                    'content': next_question['question'],
+                    'options': next_question['options']
+                }
+
+            # Si on a une question suivante sans options
+            if next_question:
+                return {
+                    'type': 'text',
+                    'content': next_question['question'],
+                    'options': []
+                }
+
+            # Si toutes les informations sont collectées
+            if self.info_collector.is_collection_complete(collected_info):
+                final_analysis = await self.generer_analyse_finale(collected_info, initial_query)
+                return {
+                    'type': 'text',
+                    'content': final_analysis,
+                    'options': []
+                }
+
+            return {
                 'type': 'text',
-                'content': '',
+                'content': "Je suis désolée, pourriez-vous reformuler votre demande ?",
                 'options': []
             }
-    
-            # Construit le prompt pour l'IA
-            system_prompt = """Tu es Emma, une conseillère en gestion de patrimoine professionnelle et concise.
-            Ton objectif est de collecter des informations essentielles sur le client tout en répondant à ses questions.
-            Garde tes réponses courtes et naturelles."""
-    
-            context = {
-                'message': message,
-                'collected_info': collected_info,
-                'initial_query': initial_query,
-                'next_needed': next_question['field'] if next_question else None
-            }
-    
-            user_prompt = f"""Message du client: {message}
-    
-            Contexte:
-            - Question initiale: {initial_query if initial_query else 'Aucune'}
-            - Prochaine information nécessaire: {next_question['field'] if next_question else 'Aucune'}
-            
-            Réponds de manière naturelle en:
-            1. Accusant réception du message du client
-            2. Demandant l'information manquante de manière fluide
-            3. Gardant la réponse courte et professionnelle"""
-    
-            chat_response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.7
-            )
-    
-            response['content'] = chat_response.choices[0].message.content
-    
-            # Ajoute les options si nécessaire
-            if next_question and next_question.get('type') == 'choice':
-                response['type'] = 'choice'
-                response['options'] = next_question['options']
-    
-            return response
-    
+
         except Exception as e:
             print(f"Erreur de génération de réponse: {str(e)}")
             return {
@@ -334,13 +329,12 @@ class ChatBot:
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Traite la question et génère une réponse appropriée"""
         try:
-            # Stocke l'ID de conversation actuel pour utilisation dans d'autres méthodes
             self.current_conversation_id = conversation_id
             
             # Récupère ou crée la conversation
             conversation = self.conv_storage.get_conversation(conversation_id)
             
-            # Si c'est la première question, l'enregistre comme query initiale
+            # Enregistre la question initiale
             self.conv_storage.set_initial_query(conversation_id, question)
             initial_query = conversation.get('initial_query')
 
@@ -354,38 +348,39 @@ class ChatBot:
 
             collected_info = self.conv_storage.get_collected_info(conversation_id)
 
-            # Vérifie si toutes les informations nécessaires ont été collectées
+            # Obtient la prochaine question ou génère l'analyse finale
             if self.info_collector.is_collection_complete(collected_info):
-                # Génère une analyse finale
-                response = await self.generer_analyse_finale(collected_info, initial_query)
+                response = {
+                    'type': 'text',
+                    'content': await self.generer_analyse_finale(collected_info, initial_query),
+                    'options': []
+                }
             else:
-                # Obtient la prochaine question à poser
                 _, next_question = self.info_collector.get_next_question(collected_info, initial_query)
-                
-                # Génère une réponse contextuelle
                 response = await self.generate_response(question, collected_info, next_question, initial_query)
 
-            # Enregistre le message dans l'historique
+            # Enregistre les messages
             self.conv_storage.add_message(conversation_id, {
                 'role': 'user',
                 'content': question
             })
             self.conv_storage.add_message(conversation_id, {
                 'role': 'assistant',
-                'content': response
+                'content': response['content']
             })
 
             return {
                 'reponse': response,
-                'conversation_id': conversation_id,
-                'type': 'text'
+                'conversation_id': conversation_id
             }
 
         except Exception as e:
             print(f"Erreur dans repondre_question: {str(e)}")
             return {
-                'reponse': "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?",
-                'conversation_id': conversation_id,
-                'type': 'text',
-                'error': True
+                'reponse': {
+                    'type': 'error',
+                    'content': "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?",
+                    'options': []
+                },
+                'conversation_id': conversation_id
             }
