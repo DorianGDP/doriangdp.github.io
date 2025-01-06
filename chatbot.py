@@ -189,62 +189,49 @@ class ChatBot:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
 
-    async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict]) -> dict:
-        try:
-            name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
-            
-            # Si c'est un nouveau message sans informations collectées
-            if not collected_info and next_question:
-                return {
-                    'type': next_question.get('type', 'text'),
-                    'content': next_question['question'],
-                    'options': next_question.get('options', []),
-                    'expectedInfo': next_question.get('expectedInfo')
+    async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
+            try:
+                response = {
+                    'type': 'text',
+                    'content': '',
+                    'options': []
                 }
-
-            # Construction du prompt contextuel
-            system_prompt = """Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
-            Ton objectif est d'accompagner le client dans sa démarche tout en collectant les informations nécessaires."""
-
-            context = {
-                'message': message,
-                'collected_info': collected_info,
-                'next_question': next_question
-            }
-
-            user_prompt = f"""En tenant compte du contexte suivant :
-            - Message du client : {message}
-            - Informations déjà collectées : {json.dumps(collected_info, ensure_ascii=False)}
-            
-            Génère une réponse personnalisée et naturelle qui :
-            1. Accuse réception de l'information fournie
-            2. Pose la prochaine question : {next_question['question'] if next_question else 'Passage à l'analyse finale'}"""
-
-            completion = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.7
-            )
-
-            response = {
-                'type': next_question.get('type', 'text') if next_question else 'text',
-                'content': completion.choices[0].message.content,
-                'options': next_question.get('options', []) if next_question else [],
-                'expectedInfo': next_question.get('expectedInfo') if next_question else None
-            }
-
-            return response
-
-        except Exception as e:
-            print(f"Error in generate_response: {str(e)}")
-            return {
-                'type': 'text',
-                'content': "Je suis désolée, pourriez-vous reformuler votre demande ?",
-                'options': []
-            }
+    
+                name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
+                greeting = f"Bonjour {name}, " if name else "Bonjour ! "
+    
+                if not collected_info:
+                    response['content'] = f"{greeting}Je suis Emma, votre conseillère. {next_question['question']}"
+                    return response
+    
+                system_prompt = "Emma: conseillère patrimoniale professionnelle et concise. Objectif: collecter les informations client."
+    
+                user_content = f"Message: {message}\nInfo collectées: {json.dumps(collected_info, ensure_ascii=False)}\nQuestion suivante: {next_question['question'] if next_question else 'Analyse finale'}"
+    
+                chat_completion = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    temperature=0.5
+                )
+                
+                response['content'] = chat_completion.choices[0].message.content
+    
+                if next_question and next_question.get('type') == 'choice':
+                    response['type'] = 'choice'
+                    response['options'] = next_question.get('options', [])
+    
+                return response
+    
+            except Exception as e:
+                print(f"Error: {str(e)}")
+                return {
+                    'type': 'text',
+                    'content': "Pourriez-vous reformuler ?",
+                    'options': []
+                }
     
     def get_conversation_messages(self) -> List[Dict]:
         """Récupère l'historique des messages de la conversation actuelle"""
