@@ -265,7 +265,7 @@ class ChatBot:
             # Récupère ou crée un nouvel enregistrement lead
             conversation = self.conv_storage.get_conversation(conversation_id)
             lead_id = conversation.get('lead_id')
-
+    
             if not lead_id:
                 # Création d'un nouveau lead
                 lead_data = {
@@ -273,54 +273,66 @@ class ChatBot:
                     "source": "chatbot",
                     "created_at": datetime.utcnow().isoformat()
                 }
-
+    
                 # Ajout des informations de base si disponibles
                 if 'name' in info:
                     name_parts = info['name'].split()
                     lead_data["first_name"] = name_parts[0]
                     if len(name_parts) > 1:
                         lead_data["last_name"] = ' '.join(name_parts[1:])
-
+    
                 if 'email' in info:
                     lead_data["email"] = info['email']
                 if 'phone' in info:
                     lead_data["phone"] = info['phone']
-
+    
                 # Insertion du nouveau lead
-                result = await self.supabase.table('leads').insert(lead_data).execute()
-                lead_id = result.data[0]['id']
+                lead_response = self.supabase.table('leads').insert(lead_data).execute()
+                lead_id = lead_response.data[0]['id']
                 conversation['lead_id'] = lead_id
-
+    
                 # Création de l'enregistrement conversation
-                await self.supabase.table('conversations').insert({
+                self.supabase.table('conversations').insert({
                     "lead_id": lead_id,
                     "conversation_id": conversation_id,
                     "status": "en_cours"
                 }).execute()
-
+    
             # Mise à jour des informations patrimoniales
-            patrimoine_data = {
-                "lead_id": lead_id,
-                "updated_at": datetime.utcnow().isoformat()
-            }
-
-            if 'age' in info:
-                patrimoine_data["age"] = int(info['age'])
-            if 'profession' in info:
-                patrimoine_data["profession"] = info['profession']
-            if 'situation_familiale' in info:
-                patrimoine_data["situation_familiale"] = info['situation_familiale']
-            if 'revenus' in info:
-                patrimoine_data["revenus_annuels"] = float(info['revenus'])
-            if 'patrimoine' in info:
-                patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
-
-            if patrimoine_data:
-                await self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
-
+            if any(key in info for key in ['age', 'profession', 'situation_familiale', 'revenus', 'patrimoine']):
+                patrimoine_data = {
+                    "lead_id": lead_id,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+    
+                if 'age' in info:
+                    try:
+                        patrimoine_data["age"] = int(info['age'])
+                    except (ValueError, TypeError):
+                        print(f"Erreur de conversion d'âge: {info['age']}")
+    
+                if 'profession' in info:
+                    patrimoine_data["profession"] = info['profession']
+                if 'situation_familiale' in info:
+                    patrimoine_data["situation_familiale"] = info['situation_familiale']
+                
+                if 'revenus' in info:
+                    try:
+                        patrimoine_data["revenus_annuels"] = float(info['revenus'])
+                    except (ValueError, TypeError):
+                        print(f"Erreur de conversion des revenus: {info['revenus']}")
+                
+                if 'patrimoine' in info:
+                    try:
+                        patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
+                    except (ValueError, TypeError):
+                        print(f"Erreur de conversion du patrimoine: {info['patrimoine']}")
+    
+                if patrimoine_data:
+                    self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
+    
         except Exception as e:
             print(f"Erreur de mise à jour de la base de données: {str(e)}")
-            raise
 
     async def generer_analyse_finale(self, info_collected: dict, initial_query: str) -> str:
         """Génère une analyse finale basée sur toutes les informations collectées"""
