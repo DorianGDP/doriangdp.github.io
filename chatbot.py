@@ -135,14 +135,13 @@ class InfoCollector:
         ]
 
     def get_next_info(self, collected_info: dict) -> tuple:
-        """Détermine la prochaine information à collecter"""
         for info in self.info_sequence:
             if info['field'] not in collected_info or (
                 info.get('required', True) and not collected_info[info['field']]
             ):
                 question = info.get('question', '')
-                if '{first_name}' in question and 'name' in collected_info:
-                    first_name = collected_info['name'].split()[0]
+                if '{first_name}' in question and 'first_name' in collected_info:  # Changé de 'name' à 'first_name'
+                    first_name = collected_info['first_name']  # Utilise directement first_name
                     question = question.format(first_name=first_name)
                 return info['field'], {
                     'question': question,
@@ -204,17 +203,18 @@ class ChatBot:
 
     async def extract_info_from_message(self, message: str) -> dict:
         try:
-            # Ajouter une logique de pré-traitement pour l'âge
+            # Traitement spécial pour l'âge
             age_match = re.search(r'\b(\d+)(?:\s*(?:ans?))?\b', message)
             if age_match:
                 age = age_match.group(1)
                 if 18 <= int(age) <= 100:
                     return {'age': age}
     
-            system_prompt = "Extrais les informations personnelles du message suivant."
+            system_prompt = "Extrais les informations personnelles du message."
             
-            user_prompt = f"""Format JSON requis avec uniquement les informations présentes :
-            - name: prénom et nom
+            user_prompt = f"""Format JSON avec uniquement les informations présentes :
+            - first_name: prénom
+            - last_name: nom
             - email: adresse email
             - phone: numéro téléphone
             - age: âge (nombre uniquement)
@@ -235,9 +235,17 @@ class ChatBot:
             )
     
             extracted_info = json.loads(response.choices[0].message.content)
-            return {k: v.strip() if isinstance(v, str) else v 
-                   for k, v in extracted_info.items() 
-                   if v is not None and v != ""}
+            
+            # Nettoyage des données
+            cleaned_info = {}
+            for k, v in extracted_info.items():
+                if v and str(v).strip():
+                    if k in ['first_name', 'last_name']:
+                        cleaned_info[k] = v.strip().capitalize()
+                    else:
+                        cleaned_info[k] = v.strip() if isinstance(v, str) else v
+    
+            return cleaned_info
     
         except Exception as e:
             print(f"Error in extract_info_from_message: {str(e)}")
@@ -409,7 +417,7 @@ class ChatBot:
             4. Proposition de RDV"""
     
             response = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Tu es Emma, conseillère patrimoniale. Sois concise et précise."},
                     {"role": "user", "content": prompt}
