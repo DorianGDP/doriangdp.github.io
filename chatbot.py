@@ -178,27 +178,22 @@ class ChatBot:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
 
-    def generate_response(self, collected_info: dict, next_question: str, initial_query: str) -> str:
+
+    async def generate_response(self, collected_info: dict, next_question: str, initial_query: str) -> str:
         """Génère une réponse contextuelle"""
         try:
-            prompt = f"""En tant que conseillère en gestion de patrimoine, génère une réponse naturelle qui:
-            1. Si c'est la première interaction et qu'il y a une question initiale ("{initial_query}"), 
+            prompt = f'''En tant que conseillère en gestion de patrimoine, génère une réponse naturelle qui:
+            1. Si c'est la première interaction et qu'il y a une question initiale ({initial_query!r}), 
                commence par y faire référence
             2. Si des informations ont été collectées, fait un bref accusé de réception
-            3. Pose la question suivante: "{next_question}"
+            3. Pose la question suivante: {next_question!r}
             4. Maintient un ton professionnel mais chaleureux
 
             Informations déjà collectées:
-            {json.dumps(collected_info, indent=2)}
-
-            La réponse doit:
-            - Être naturelle et conversationnelle
-            - Expliquer pourquoi l'information est nécessaire
-            - Faire le lien avec le projet du client
-            - Éviter les formulations robotiques"""
+            {json.dumps(collected_info, indent=2)}'''
 
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4",
                 messages=[
                     {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine empathique et professionnelle."},
                     {"role": "user", "content": prompt}
@@ -213,67 +208,67 @@ class ChatBot:
             return "Je suis désolée, pourriez-vous reformuler votre demande ?"
 
     async def update_database(self, conversation_id: str, info: dict):
-            """Met à jour la base de données avec les nouvelles informations"""
-            try:
-                # Récupère ou crée un nouvel enregistrement lead
-                conversation = self.storage.get_conversation(conversation_id)
-                lead_id = conversation.get('lead_id')
-    
-                if not lead_id:
-                    # Création d'un nouveau lead
-                    lead_data = {
-                        "status": "nouveau",
-                        "source": "chatbot",
-                        "created_at": datetime.utcnow().isoformat()
-                    }
-    
-                    # Ajout des informations de base si disponibles
-                    if 'name' in info:
-                        name_parts = info['name'].split()
-                        lead_data["first_name"] = name_parts[0]
-                        if len(name_parts) > 1:
-                            lead_data["last_name"] = ' '.join(name_parts[1:])
-    
-                    if 'email' in info:
-                        lead_data["email"] = info['email']
-                    if 'phone' in info:
-                        lead_data["phone"] = info['phone']
-    
-                    # Insertion du nouveau lead
-                    result = await self.supabase.table('leads').insert(lead_data).execute()
-                    lead_id = result.data[0]['id']
-                    conversation['lead_id'] = lead_id
-    
-                    # Création de l'enregistrement conversation
-                    await self.supabase.table('conversations').insert({
-                        "lead_id": lead_id,
-                        "conversation_id": conversation_id,
-                        "status": "en_cours"
-                    }).execute()
-    
-                # Mise à jour des informations patrimoniales
-                patrimoine_data = {
-                    "lead_id": lead_id,
-                    "updated_at": datetime.utcnow().isoformat()
+        """Met à jour la base de données avec les nouvelles informations"""
+        try:
+            # Récupère ou crée un nouvel enregistrement lead
+            conversation = self.conv_storage.get_conversation(conversation_id)
+            lead_id = conversation.get('lead_id')
+
+            if not lead_id:
+                # Création d'un nouveau lead
+                lead_data = {
+                    "status": "nouveau",
+                    "source": "chatbot",
+                    "created_at": datetime.utcnow().isoformat()
                 }
-    
-                if 'age' in info:
-                    patrimoine_data["age"] = int(info['age'])
-                if 'profession' in info:
-                    patrimoine_data["profession"] = info['profession']
-                if 'situation_familiale' in info:
-                    patrimoine_data["situation_familiale"] = info['situation_familiale']
-                if 'revenus' in info:
-                    patrimoine_data["revenus_annuels"] = float(info['revenus'])
-                if 'patrimoine' in info:
-                    patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
-    
-                if patrimoine_data:
-                    await self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
-    
-            except Exception as e:
-                print(f"Erreur de mise à jour de la base de données: {str(e)}")
-                raise
+
+                # Ajout des informations de base si disponibles
+                if 'name' in info:
+                    name_parts = info['name'].split()
+                    lead_data["first_name"] = name_parts[0]
+                    if len(name_parts) > 1:
+                        lead_data["last_name"] = ' '.join(name_parts[1:])
+
+                if 'email' in info:
+                    lead_data["email"] = info['email']
+                if 'phone' in info:
+                    lead_data["phone"] = info['phone']
+
+                # Insertion du nouveau lead
+                result = await self.supabase.table('leads').insert(lead_data).execute()
+                lead_id = result.data[0]['id']
+                conversation['lead_id'] = lead_id
+
+                # Création de l'enregistrement conversation
+                await self.supabase.table('conversations').insert({
+                    "lead_id": lead_id,
+                    "conversation_id": conversation_id,
+                    "status": "en_cours"
+                }).execute()
+
+            # Mise à jour des informations patrimoniales
+            patrimoine_data = {
+                "lead_id": lead_id,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+
+            if 'age' in info:
+                patrimoine_data["age"] = int(info['age'])
+            if 'profession' in info:
+                patrimoine_data["profession"] = info['profession']
+            if 'situation_familiale' in info:
+                patrimoine_data["situation_familiale"] = info['situation_familiale']
+            if 'revenus' in info:
+                patrimoine_data["revenus_annuels"] = float(info['revenus'])
+            if 'patrimoine' in info:
+                patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
+
+            if patrimoine_data:
+                await self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
+
+        except Exception as e:
+            print(f"Erreur de mise à jour de la base de données: {str(e)}")
+            raise
 
     async def generer_analyse_finale(self, info_collected: dict, initial_query: str) -> str:
         """Génère une analyse finale basée sur toutes les informations collectées"""
@@ -290,9 +285,7 @@ class ChatBot:
             2. Répondre spécifiquement à la question/demande initiale
             3. Proposer 2-3 recommandations pertinentes
             4. Expliquer les avantages de chaque recommandation
-            5. Se terminer par une proposition de rendez-vous personnalisé
-            
-            Garde un ton professionnel mais chaleureux et évite les formulations génériques."""
+            5. Se terminer par une proposition de rendez-vous personnalisé"""
 
             response = await self.client.chat.completions.create(
                 model="gpt-4o",
