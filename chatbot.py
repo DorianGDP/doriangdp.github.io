@@ -161,7 +161,7 @@ class ChatBot:
 
             Message à analyser: {message}"""
 
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -192,8 +192,8 @@ class ChatBot:
             Informations déjà collectées:
             {json.dumps(collected_info, indent=2)}'''
 
-            response = await self.client.chat.completions.create(
-                model="gpt-4",
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine empathique et professionnelle."},
                     {"role": "user", "content": prompt}
@@ -287,7 +287,7 @@ class ChatBot:
             4. Expliquer les avantages de chaque recommandation
             5. Se terminer par une proposition de rendez-vous personnalisé"""
 
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Tu es Emma, une conseillère en gestion de patrimoine expérimentée et empathique."},
