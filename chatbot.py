@@ -162,53 +162,61 @@ class ChatBot:
             return {}
 
     async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
-        """Génère une réponse contextuelle avec options si nécessaire"""
+        """Génère une réponse contextuelle en utilisant l'IA"""
         try:
-            # Détermine si c'est la première interaction
-            conversation = self.conv_storage.get_conversation(self.current_conversation_id)
-            is_first_interaction = len(conversation['messages']) == 0
-
-            # Pour la première interaction
-            if is_first_interaction:
-                return {
-                    'type': 'text',
-                    'content': "Bonjour ! Pour vous conseiller au mieux, quel est votre nom et prénom ?",
-                    'options': []
-                }
-
-            # Si on a une question suivante avec des options
-            if next_question and next_question.get('type') == 'choice':
-                return {
-                    'type': 'choice',
-                    'content': next_question['question'],
-                    'options': next_question['options']
-                }
-
-            # Si on a une question suivante sans options
-            if next_question:
-                return {
-                    'type': 'text',
-                    'content': next_question['question'],
-                    'options': []
-                }
-
-            # Si toutes les informations sont collectées
-            if self.info_collector.is_collection_complete(collected_info):
-                final_analysis = await self.generer_analyse_finale(collected_info, initial_query)
-                return {
-                    'type': 'text',
-                    'content': final_analysis,
-                    'options': []
-                }
-
-            return {
+            # Prépare la structure de réponse
+            response = {
                 'type': 'text',
-                'content': "Je suis désolée, pourriez-vous reformuler votre demande ?",
+                'content': '',
                 'options': []
             }
-
+    
+            # Construit le prompt pour l'IA
+            system_prompt = """Tu es Emma, une conseillère en gestion de patrimoine professionnelle et concise.
+            Ton objectif est de collecter des informations essentielles sur le client tout en répondant à ses questions.
+            Garde tes réponses courtes et naturelles."""
+    
+            # Ajout de logs pour debug
+            print(f"Generating response for message: {message}")
+            print(f"Collected info: {collected_info}")
+            print(f"Next question: {next_question}")
+    
+            # Construction du contexte utilisateur
+            user_content = f"""Message du client: {message}
+    
+            Contexte:
+            - Informations déjà collectées: {json.dumps(collected_info, ensure_ascii=False)}
+            - Question initiale: {initial_query if initial_query else 'Aucune'}
+            - Prochaine information nécessaire: {next_question['field'] if next_question else 'Aucune'}"""
+    
+            try:
+                chat_completion = await self.client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    temperature=0.7
+                )
+                
+                # Log de la réponse
+                print(f"OpenAI response received: {chat_completion}")
+                
+                response['content'] = chat_completion.choices[0].message.content
+    
+            except Exception as api_error:
+                print(f"OpenAI API error: {str(api_error)}")
+                response['content'] = "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?"
+    
+            # Ajoute les options si nécessaire
+            if next_question and next_question.get('type') == 'choice':
+                response['type'] = 'choice'
+                response['options'] = next_question['options']
+    
+            return response
+    
         except Exception as e:
-            print(f"Erreur de génération de réponse: {str(e)}")
+            print(f"Error in generate_response: {str(e)}")
             return {
                 'type': 'text',
                 'content': "Je suis désolée, pourriez-vous reformuler votre demande ?",
@@ -329,58 +337,70 @@ class ChatBot:
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         """Traite la question et génère une réponse appropriée"""
         try:
-            self.current_conversation_id = conversation_id
+            print(f"Starting repondre_question for conversation {conversation_id}")
             
             # Récupère ou crée la conversation
             conversation = self.conv_storage.get_conversation(conversation_id)
+            print(f"Retrieved conversation: {conversation}")
             
-            # Enregistre la question initiale
+            # Si c'est la première question, l'enregistre comme query initiale
             self.conv_storage.set_initial_query(conversation_id, question)
             initial_query = conversation.get('initial_query')
-
+            print(f"Initial query: {initial_query}")
+    
             # Extrait les informations du message
             extracted_info = await self.extract_info_from_message(question)
+            print(f"Extracted info: {extracted_info}")
             
             # Met à jour les informations collectées
             if extracted_info:
                 self.conv_storage.update_info(conversation_id, extracted_info)
                 await self.update_database(conversation_id, extracted_info)
-
+    
             collected_info = self.conv_storage.get_collected_info(conversation_id)
-
-            # Obtient la prochaine question ou génère l'analyse finale
+            print(f"Collected info: {collected_info}")
+    
+            # Vérifie si toutes les informations nécessaires ont été collectées
             if self.info_collector.is_collection_complete(collected_info):
+                print("All information collected, generating final analysis")
+                response_content = await self.generer_analyse_finale(collected_info, initial_query)
                 response = {
                     'type': 'text',
-                    'content': await self.generer_analyse_finale(collected_info, initial_query),
+                    'content': response_content,
                     'options': []
                 }
             else:
-                _, next_question = self.info_collector.get_next_question(collected_info, initial_query)
+                print("Information collection incomplete, getting next question")
+                # Obtient la prochaine question à poser
+                field, next_question = self.info_collector.get_next_question(collected_info, initial_query)
+                print(f"Next question: {next_question}")
+                
+                # Génère une réponse contextuelle
                 response = await self.generate_response(question, collected_info, next_question, initial_query)
-
-            # Enregistre les messages
+    
+            print(f"Generated response: {response}")
+    
+            # Enregistre le message dans l'historique
             self.conv_storage.add_message(conversation_id, {
                 'role': 'user',
                 'content': question
             })
             self.conv_storage.add_message(conversation_id, {
                 'role': 'assistant',
-                'content': response['content']
+                'content': response
             })
-
+    
             return {
-                'reponse': response,
-                'conversation_id': conversation_id
+                'type': response.get('type', 'text'),
+                'content': response.get('content', ''),
+                'options': response.get('options', [])
             }
-
+    
         except Exception as e:
-            print(f"Erreur dans repondre_question: {str(e)}")
+            print(f"Error in repondre_question: {str(e)}")
+            traceback.print_exc()
             return {
-                'reponse': {
-                    'type': 'error',
-                    'content': "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?",
-                    'options': []
-                },
-                'conversation_id': conversation_id
+                'type': 'text',
+                'content': "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?",
+                'options': []
             }
