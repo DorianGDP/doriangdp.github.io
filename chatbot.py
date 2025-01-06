@@ -173,13 +173,9 @@ class ChatBot:
     
             # Construit le prompt pour l'IA
             system_prompt = """Tu es Emma, une conseillère en gestion de patrimoine professionnelle et concise.
+            Tu dois être chaleureuse et empathique dans tes réponses tout en restant professionnelle.
             Ton objectif est de collecter des informations essentielles sur le client tout en répondant à ses questions.
-            Garde tes réponses courtes et naturelles."""
-    
-            # Ajout de logs pour debug
-            print(f"Generating response for message: {message}")
-            print(f"Collected info: {collected_info}")
-            print(f"Next question: {next_question}")
+            Adapte tes réponses en fonction des informations déjà collectées."""
     
             # Construction du contexte utilisateur
             user_content = f"""Message du client: {message}
@@ -187,8 +183,14 @@ class ChatBot:
             Contexte:
             - Informations déjà collectées: {json.dumps(collected_info, ensure_ascii=False)}
             - Question initiale: {initial_query if initial_query else 'Aucune'}
-            - Prochaine information nécessaire: {next_question['field'] if next_question else 'Aucune'}"""
-    
+            {'- Prochaine information à collecter: ' + next_question['question'] if next_question else ''}
+            
+            Instructions:
+            1. Accueille chaleureusement le client s'il s'agit de son premier message
+            2. Réponds à sa question ou son message de manière naturelle
+            3. Si des informations sont manquantes, explique pourquoi tu as besoin d'en savoir plus
+            4. Pose la question suivante de manière naturelle dans la conversation"""
+
             try:
                 chat_completion = await self.client.chat.completions.create(
                     model="gpt-3.5-turbo",
@@ -199,9 +201,6 @@ class ChatBot:
                     temperature=0.7
                 )
                 
-                # Log de la réponse
-                print(f"OpenAI response received: {chat_completion}")
-                
                 response['content'] = chat_completion.choices[0].message.content
     
             except Exception as api_error:
@@ -211,7 +210,7 @@ class ChatBot:
             # Ajoute les options si nécessaire
             if next_question and next_question.get('type') == 'choice':
                 response['type'] = 'choice'
-                response['options'] = next_question['options']
+                response['options'] = next_question.get('options', [])
     
             return response
     
