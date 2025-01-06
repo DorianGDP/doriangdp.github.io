@@ -179,19 +179,57 @@ class ChatBot:
             return {}
 
 
-    async def generate_response(self, collected_info: dict, next_question: str, initial_query: str) -> str:
-        """Génère une réponse contextuelle"""
+    async def generate_response(self, message: str, collected_info: dict, next_question: str, initial_query: str) -> str:
+        """Génère une réponse contextuelle en tenant compte du message de l'utilisateur"""
         try:
+            # Détermine si c'est la première interaction
+            is_first_interaction = len(self.conv_storage.get_conversation_messages()) == 0
+            
+            # Analyse l'intention du message
+            intent_prompt = f'''Analyse ce message et détermine l'intention principale:
+            Message: {message}
+            
+            Retourne une des catégories suivantes:
+            - salutation_simple: simple bonjour sans question
+            - question_patrimoine: question sur la gestion de patrimoine
+            - reponse_info: réponse à une demande d'information
+            - autre: autre type de message
+            '''
+            
+            intent_response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en analyse d'intentions."},
+                    {"role": "user", "content": intent_prompt}
+                ],
+                temperature=0.1
+            )
+            
+            intent = intent_response.choices[0].message.content.strip().lower()
+            
+            # Génère une réponse appropriée selon le contexte
+            if is_first_interaction:
+                if intent == "salutation_simple":
+                    return """Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. 
+                    Je suis là pour vous aider à optimiser votre patrimoine et répondre à vos questions. 
+                    Quel aspect de votre gestion patrimoniale vous intéresse particulièrement ?"""
+                elif intent == "question_patrimoine":
+                    return f"""Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. 
+                    Je vois que vous vous intéressez à {initial_query}. Pour vous apporter les meilleures 
+                    recommandations, j'aimerais en savoir un peu plus sur vous. Tout d'abord, comment 
+                    dois-je vous appeler ?"""
+            
+            # Pour les interactions suivantes
             prompt = f'''En tant que conseillère en gestion de patrimoine, génère une réponse naturelle qui:
-            1. Si c'est la première interaction et qu'il y a une question initiale ({initial_query!r}), 
-               commence par y faire référence
-            2. Si des informations ont été collectées, fait un bref accusé de réception
-            3. Pose la question suivante: {next_question!r}
-            4. Maintient un ton professionnel mais chaleureux
-
+            1. Prend en compte le message actuel: {message!r}
+            2. Fait référence à la question initiale si pertinent: {initial_query!r}
+            3. Accuse réception des informations si présentes
+            4. Pose la prochaine question de manière naturelle: {next_question!r}
+            5. Maintient un ton professionnel et chaleureux
+            
             Informations déjà collectées:
             {json.dumps(collected_info, indent=2)}'''
-
+            
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -200,12 +238,16 @@ class ChatBot:
                 ],
                 temperature=0.7
             )
-
+            
             return response.choices[0].message.content
-
+            
         except Exception as e:
             print(f"Erreur de génération de réponse: {str(e)}")
             return "Je suis désolée, pourriez-vous reformuler votre demande ?"
+    
+    def get_conversation_messages(self) -> List[Dict]:
+        """Récupère l'historique des messages de la conversation actuelle"""
+        return self._conversations.get(self._current_conversation_id, {}).get('messages', [])
 
     async def update_database(self, conversation_id: str, info: dict):
         """Met à jour la base de données avec les nouvelles informations"""
