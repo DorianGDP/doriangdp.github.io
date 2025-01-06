@@ -161,7 +161,7 @@ class ChatBot:
             print(f"Erreur d'extraction: {str(e)}")
             return {}
 
-   async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
+    async def generate_response(self, message: str, collected_info: dict, next_question: Optional[dict], initial_query: Optional[str]) -> dict:
         """Génère une réponse contextuelle avec options si nécessaire"""
         try:
             # Détermine si c'est la première interaction
