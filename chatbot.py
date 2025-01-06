@@ -71,7 +71,16 @@ class InfoCollector:
                 'field': 'profession',
                 'question': "Quelle est votre situation professionnelle actuelle ?",
                 'required': True,
-                'type': 'text'
+                'type': 'choice',
+                'options': [
+                    "Salarié du secteur privé",
+                    "Fonctionnaire",
+                    "Chef d'entreprise",
+                    "Profession libérale",
+                    "Indépendant / Auto-entrepreneur",
+                    "Retraité",
+                    "Autre"
+                ]
             },
             {
                 'field': 'age',
@@ -250,79 +259,93 @@ class ChatBot:
         return self._conversations.get(self._current_conversation_id, {}).get('messages', [])
 
     async def update_database(self, conversation_id: str, info: dict):
-        """Met à jour la base de données avec les nouvelles informations"""
         try:
-            # Récupère ou crée un nouvel enregistrement lead
             conversation = self.conv_storage.get_conversation(conversation_id)
             lead_id = conversation.get('lead_id')
-    
+            
+            # Gestion des leads
             if not lead_id:
-                # Création d'un nouveau lead
                 lead_data = {
                     "status": "nouveau",
                     "source": "chatbot",
                     "created_at": datetime.utcnow().isoformat()
                 }
-    
-                # Ajout des informations de base si disponibles
+                
                 if 'name' in info:
                     name_parts = info['name'].split()
                     lead_data["first_name"] = name_parts[0]
                     if len(name_parts) > 1:
                         lead_data["last_name"] = ' '.join(name_parts[1:])
-    
+                
                 if 'email' in info:
                     lead_data["email"] = info['email']
                 if 'phone' in info:
                     lead_data["phone"] = info['phone']
-    
-                # Insertion du nouveau lead
+                
                 lead_response = self.supabase.table('leads').insert(lead_data).execute()
                 lead_id = lead_response.data[0]['id']
                 conversation['lead_id'] = lead_id
-    
-                # Création de l'enregistrement conversation
+                
                 self.supabase.table('conversations').insert({
                     "lead_id": lead_id,
                     "conversation_id": conversation_id,
                     "status": "en_cours"
                 }).execute()
+            else:
+                lead_update = {}
+                if 'email' in info:
+                    lead_update["email"] = info['email']
+                if 'phone' in info:
+                    lead_update["phone"] = info['phone']
+                
+                if lead_update:
+                    self.supabase.table('leads').update(lead_update).eq('id', lead_id).execute()
     
-            # Mise à jour des informations patrimoniales
-            if any(key in info for key in ['age', 'profession', 'situation_familiale', 'revenus', 'patrimoine']):
-                patrimoine_data = {
-                    "lead_id": lead_id,
-                    "updated_at": datetime.utcnow().isoformat()
+            def convert_income(value):
+                ranges = {
+                    "Moins de 30 000€": 30000,
+                    "30 000€ - 50 000€": 50000,
+                    "50 000€ - 100 000€": 100000,
+                    "Plus de 100 000€": 150000
                 }
+                return ranges.get(value, 0)
     
-                if 'age' in info:
+            def convert_patrimoine(value):
+                ranges = {
+                    "Moins de 50 000€": 50000,
+                    "50 000€ - 200 000€": 200000,
+                    "200 000€ - 500 000€": 500000,
+                    "Plus de 500 000€": 1000000
+                }
+                return ranges.get(value, 0)
+            
+            # Mapping des champs pour patrimoine_info
+            patrimoine_fields = {
+                'age': ('age', int),
+                'profession': ('profession', str),
+                'income': ('revenus_annuels', convert_income),
+                'patrimoine': ('patrimoine_total', convert_patrimoine),
+                'objectifs': ('objectifs', lambda x: [x])
+            }
+            
+            patrimoine_data = {"lead_id": lead_id}
+            
+            for key, (db_field, converter) in patrimoine_fields.items():
+                if key in info:
                     try:
-                        patrimoine_data["age"] = int(info['age'])
-                    except (ValueError, TypeError):
-                        print(f"Erreur de conversion d'âge: {info['age']}")
-    
-                if 'profession' in info:
-                    patrimoine_data["profession"] = info['profession']
-                if 'situation_familiale' in info:
-                    patrimoine_data["situation_familiale"] = info['situation_familiale']
+                        patrimoine_data[db_field] = converter(info[key])
+                    except (ValueError, TypeError) as e:
+                        print(f"Erreur de conversion pour {key}: {e}")
+            
+            if len(patrimoine_data) > 1:
+                self.supabase.table('patrimoine_info').upsert({
+                    **patrimoine_data,
+                    "updated_at": datetime.utcnow().isoformat()
+                }).execute()
                 
-                if 'revenus' in info:
-                    try:
-                        patrimoine_data["revenus_annuels"] = float(info['revenus'])
-                    except (ValueError, TypeError):
-                        print(f"Erreur de conversion des revenus: {info['revenus']}")
-                
-                if 'patrimoine' in info:
-                    try:
-                        patrimoine_data["patrimoine_total"] = float(info['patrimoine'])
-                    except (ValueError, TypeError):
-                        print(f"Erreur de conversion du patrimoine: {info['patrimoine']}")
-    
-                if patrimoine_data:
-                    self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
-    
         except Exception as e:
             print(f"Erreur de mise à jour de la base de données: {str(e)}")
+            raise
 
 
     async def generer_analyse_finale(self, info_collected: dict, initial_query: str) -> str:
