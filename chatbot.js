@@ -4,73 +4,40 @@ const ImprovedChatbot = () => {
   const [messages, setMessages] = useState([]);
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef(null);
   const [collectedInfo, setCollectedInfo] = useState({});
+  const [conversationId, setConversationId] = useState('');
+  const messagesEndRef = useRef(null);
 
-  const questions = {
-    name: {
-      text: "Pour mieux vous conseiller, quel est votre nom et prénom ?",
-      type: "text"
-    },
-    phone: {
-      text: "Quel est votre numéro de téléphone pour un échange plus personnalisé ?",
-      type: "text"
-    },
-    email: {
-      text: "À quelle adresse email puis-je vous recontacter ?",
-      type: "text"
-    },
-    income: {
-      text: "Dans quelle tranche de revenus annuels vous situez-vous ?",
-      type: "options",
-      options: [
-        "Moins de 30 000€",
-        "30 000€ - 50 000€",
-        "50 000€ - 100 000€",
-        "Plus de 100 000€"
-      ]
-    },
-    familyStatus: {
-      text: "Quelle est votre situation familiale actuelle ?",
-      type: "options",
-      options: [
-        "Célibataire",
-        "Marié(e)",
-        "En couple",
-        "Divorcé(e)",
-        "Avec enfants"
-      ]
-    }
-  };
-
-  const sendMessage = async (message) => {
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  
+  const handleResponse = async (userMessage) => {
     try {
       setIsLoading(true);
       
-      // Simuler l'appel API
-      const response = await fetch('your-api-endpoint', {
+      const response = await fetch('https://chatbot-gdp.onrender.com/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message,
-          collectedInfo
+          question: userMessage,
+          conversation_id: conversationId,
+          collected_info: collectedInfo
         })
       });
-      
+
       const data = await response.json();
       
-      // Mise à jour des informations collectées
-      if (data.collectedInfo) {
+      if (data.conversation_id) {
+        setConversationId(data.conversation_id);
+      }
+
+      if (data.collected_info) {
         setCollectedInfo(prev => ({
           ...prev,
-          ...data.collectedInfo
+          ...data.collected_info
         }));
       }
-      
-      // Ajouter la réponse du bot
-      addMessage('bot', data.response);
+
+      addMessage('bot', data.content, data.options || []);
       
     } catch (error) {
       addMessage('bot', "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?");
@@ -80,18 +47,30 @@ const ImprovedChatbot = () => {
   };
 
   const addMessage = (type, content, options = []) => {
-    setMessages(prev => [...prev, {
-      type,
-      content,
-      options
-    }]);
+    setMessages(prev => [...prev, { type, content, options }]);
+    setTimeout(scrollToBottom, 100);
+  };
+
+  useEffect(() => {
+    addMessage('bot', "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Comment puis-je vous aider aujourd'hui ?");
+  }, []);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!userInput.trim() || isLoading) return;
+
+    const message = userInput.trim();
+    setUserInput('');
+    addMessage('user', message);
+    handleResponse(message);
   };
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={idx} 
+               className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} message-animation`}>
             <div className={`max-w-[80%] p-4 rounded-lg ${
               msg.type === 'user' 
                 ? 'bg-cyan-500 text-white rounded-br-none'
@@ -99,14 +78,17 @@ const ImprovedChatbot = () => {
             }`}>
               <div className="whitespace-pre-wrap">{msg.content}</div>
               
-              {msg.options && msg.options.length > 0 && (
+              {msg.options?.length > 0 && (
                 <div className="mt-3 space-y-2">
                   {msg.options.map((option, optIdx) => (
                     <button
                       key={optIdx}
-                      onClick={() => sendMessage(option)}
+                      onClick={() => {
+                        addMessage('user', option);
+                        handleResponse(option);
+                      }}
                       className="w-full p-2 text-left hover:bg-gray-100 rounded-lg border 
-                        border-gray-200 transition-colors text-gray-800"
+                               border-gray-200 transition-colors text-gray-800"
                     >
                       {option}
                     </button>
@@ -119,7 +101,7 @@ const ImprovedChatbot = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 bg-white border-t">
+      <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
         <div className="flex gap-2">
           <input
             type="text"
@@ -130,20 +112,15 @@ const ImprovedChatbot = () => {
             disabled={isLoading}
           />
           <button
-            onClick={() => {
-              if (userInput.trim()) {
-                addMessage('user', userInput);
-                sendMessage(userInput);
-                setUserInput('');
-              }
-            }}
+            type="submit"
             disabled={isLoading}
-            className="px-6 py-3 bg-cyan-500 text-white rounded-lg font-medium hover:bg-cyan-600"
+            className="px-6 py-3 bg-cyan-500 text-white rounded-lg font-medium
+                     hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Envoyer
+            {isLoading ? 'Envoi...' : 'Envoyer'}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 };
