@@ -25,7 +25,7 @@ async def chat():
 
         if not data:
             return jsonify({
-                'reponse': "Données manquantes",
+                'content': "Données manquantes",
                 'type': 'error'
             }), 400
 
@@ -34,7 +34,7 @@ async def chat():
 
         if not question:
             return jsonify({
-                'reponse': "Question manquante",
+                'content': "Question manquante",
                 'type': 'error'
             }), 400
 
@@ -44,9 +44,10 @@ async def chat():
 
         # Structurer la réponse pour le frontend
         formatted_response = {
-            'reponse': response.get('content', ''),
+            'content': response.get('content', ''),
             'type': response.get('type', 'text'),
-            'options': response.get('options', [])
+            'options': response.get('options', []),
+            'conversation_id': conversation_id  # Ajout de l'ID de conversation
         }
 
         print(f"Réponse formatée : {formatted_response}")
@@ -56,7 +57,7 @@ async def chat():
         print(f"Erreur serveur: {str(e)}")
         traceback.print_exc()
         return jsonify({
-            'reponse': "Une erreur s'est produite. Veuillez réessayer.",
+            'content': "Une erreur s'est produite. Veuillez réessayer.",
             'type': 'error'
         }), 500
 
