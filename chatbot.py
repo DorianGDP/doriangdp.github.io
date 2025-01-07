@@ -652,19 +652,23 @@ class ChatBot:
                 .select('messages, id')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-
+    
             if not conv_record.data:
                 # Créer une nouvelle conversation si elle n'existe pas
                 conv_insert = self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
-                    'messages': [
-                        {
-                            'type': message_type,
-                            'content': content,
-                            'timestamp': datetime.utcnow().isoformat(),
-                            'metadata': extracted_info or {}
-                        }
-                    ]
+                    'messages': [{
+                        'type': message_type,
+                        'content': content,
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'metadata': extracted_info or {}
+                    }],
+                    'status': 'en_cours',
+                    'score': 0,
+                    'needs_followup': False,
+                    'preconisations': [],
+                    'created_at': datetime.utcnow().isoformat(),
+                    'updated_at': datetime.utcnow().isoformat()
                 }).execute()
                 return
 
@@ -722,6 +726,7 @@ class ChatBot:
             
             # Mapping des champs
             field_mappings = {
+                'initial_query': 'initial_query',  # Ajout de ce champ
                 'first_name': 'first_name',
                 'last_name': 'last_name',
                 'email': 'email',
@@ -998,8 +1003,17 @@ class ChatBot:
     
             # Première interaction
             if not collected_info.get('initial_query'):
-                # Sauvegarder la question initiale
+                # Sauvegarder la question initiale en mémoire et dans la base de données
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
+                
+                # Sauvegarder dans Supabase
+                self.supabase.table('conversations')\
+                    .update({
+                        'initial_query': question,
+                        'updated_at': datetime.utcnow().isoformat()
+                    })\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
                 
                 # Générer une réponse personnalisée pour la première interaction
                 system_prompt = """Tu es Emma, conseillère en gestion de patrimoine. 
