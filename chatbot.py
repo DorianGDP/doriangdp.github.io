@@ -12,7 +12,6 @@ import re
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 class ConversationStorage:
     """Gère le stockage des conversations en mémoire"""
     def __init__(self):
