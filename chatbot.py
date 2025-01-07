@@ -573,7 +573,7 @@ class ChatBot:
                     lead_id = existing_conversation.data[0]['lead_id']
                     conversation['lead_id'] = lead_id
                     return
-    
+        
                 # Vérifier si l'email existe déjà
                 if 'email' in info:
                     existing_lead = self.supabase.table('leads').select('id').eq('email', info['email']).execute()
@@ -581,14 +581,14 @@ class ChatBot:
                         lead_id = existing_lead.data[0]['id']
                         conversation['lead_id'] = lead_id
                         return
-    
+        
                 lead_data = {
                     "status": "nouveau",
                     "source": "chatbot",
                     "created_at": datetime.utcnow().isoformat(),
                     **{k: info[k] for k in ['first_name', 'last_name', 'email', 'phone'] if k in info}
                 }
-    
+        
                 # Créer ou mettre à jour le lead
                 if lead_id:
                     self.supabase.table('leads').update(lead_data).eq('id', lead_id).execute()
@@ -606,11 +606,20 @@ class ChatBot:
             
             # Mettre à jour les informations patrimoniales
             if lead_id:
+                # Conversion des valeurs textuelles en valeurs numériques
                 conversions = {
-                    'income': {"Moins de 30 000€": 30000, "30 000€ - 50 000€": 50000,
-                              "50 000€ - 100 000€": 100000, "Plus de 100 000€": 150000},
-                    'patrimoine': {"Moins de 50 000€": 50000, "50 000€ - 200 000€": 200000,
-                                 "200 000€ - 500 000€": 500000, "Plus de 500 000€": 1000000}
+                    'income': {
+                        "Moins de 30 000€": 25000,
+                        "30 000€ - 50 000€": 40000,
+                        "50 000€ - 100 000€": 75000,
+                        "Plus de 100 000€": 125000
+                    },
+                    'patrimoine': {
+                        "Moins de 50 000€": 25000,
+                        "50 000€ - 200 000€": 125000,
+                        "200 000€ - 500 000€": 350000,
+                        "Plus de 500 000€": 750000
+                    }
                 }
                 
                 patrimoine_fields = {
@@ -624,21 +633,25 @@ class ChatBot:
                 for key, (db_field, converter) in patrimoine_fields.items():
                     if key in info:
                         try:
-                            patrimoine_data[db_field] = converter(info[key])
+                            converted_value = converter(info[key])
+                            if converted_value is not None:  # Ajouter uniquement les valeurs non nulles
+                                patrimoine_data[db_field] = converted_value
                         except (ValueError, TypeError) as e:
-                            print(f"Erreur de conversion pour {key}: {e}")
+                            logging.error(f"Erreur de conversion pour {key}: {e}")
                 
-                if len(patrimoine_data) > 1:
-                    self.supabase.table('patrimoine_info').upsert({
-                        **patrimoine_data,
-                        "updated_at": datetime.utcnow().isoformat()
-                    }).execute()
-    
-        except Exception as e:
-            print(f"Erreur de mise à jour de la base de données: {str(e)}")
-            raise
-
-
+                # Ne mettre à jour que si nous avons des données valides
+                if len(patrimoine_data) > 1:  # Plus que juste lead_id
+                    logging.info(f"Mise à jour patrimoine_info avec: {patrimoine_data}")
+                    await self.supabase.table('patrimoine_info').upsert(
+                        {
+                            **patrimoine_data,
+                            "updated_at": datetime.utcnow().isoformat()
+                        }
+                    ).execute()
+        
+            except Exception as e:
+                logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
+                raise
 
     async def generate_final_analysis(self, collected_info: dict) -> str:
         """Génère l'analyse finale et les recommandations"""
