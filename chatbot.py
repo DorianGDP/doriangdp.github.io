@@ -726,17 +726,16 @@ class ChatBot:
             
             # Mapping des champs
             field_mappings = {
-                'initial_query': 'initial_query',  # Ajout de ce champ
+                'initial_query': 'initial_query',
                 'first_name': 'first_name',
                 'last_name': 'last_name',
                 'email': 'email',
                 'phone': 'phone',
                 'age': 'age',
                 'profession': 'profession',
-                'situation_familiale': 'situation_familiale',
-                'objectifs': 'objectifs',
+                'situation_familiale': 'situation_familiale'
             }
-
+    
             # Conversion des valeurs de patrimoine et revenus
             if 'income' in info:
                 income_mapping = {
@@ -746,7 +745,7 @@ class ChatBot:
                     "Plus de 100 000€": 125000
                 }
                 update_data['revenus_annuels'] = income_mapping.get(info['income'], 0)
-
+    
             if 'patrimoine' in info:
                 patrimoine_mapping = {
                     "Moins de 50 000€": 25000,
@@ -755,19 +754,34 @@ class ChatBot:
                     "Plus de 500 000€": 750000
                 }
                 update_data['patrimoine_total'] = patrimoine_mapping.get(info['patrimoine'], 0)
-
+    
+            # Gestion spéciale des objectifs (conversion en tableau PostgreSQL)
+            if 'objectifs' in info:
+                if isinstance(info['objectifs'], str):
+                    # Si c'est une chaîne unique, la convertir en tableau
+                    objectifs = [info['objectifs']]
+                elif isinstance(info['objectifs'], (list, tuple)):
+                    # Si c'est déjà une liste/tuple, l'utiliser directement
+                    objectifs = info['objectifs']
+                else:
+                    # Sinon, essayer de diviser la chaîne sur les virgules
+                    objectifs = [obj.strip() for obj in str(info['objectifs']).split(',')]
+                
+                # Convertir la liste en format de tableau PostgreSQL
+                update_data['objectifs'] = objectifs
+    
             # Ajouter les autres champs mappés
             for source_field, target_field in field_mappings.items():
                 if source_field in info and info[source_field]:
                     update_data[target_field] = info[source_field]
-
+    
             # Mettre à jour la conversation
             if update_data:
                 self.supabase.table('conversations')\
                     .update(update_data)\
                     .eq('conversation_id', conversation_id)\
                     .execute()
-
+    
         except Exception as e:
             logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
             raise
