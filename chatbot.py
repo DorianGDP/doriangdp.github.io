@@ -440,7 +440,7 @@ class ChatBot:
             Message d'erreur technique: {error_msg}
             Format attendu: {field_info.get('validation_rules', {})}"""
     
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -596,7 +596,7 @@ class ChatBot:
             Question initiale : {initial_query}
             Prochaine information à demander : {next_info['question']}"""
     
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -702,7 +702,7 @@ class ChatBot:
             # Vérifier si une conversation existe déjà
             if not lead_id:
                 # Rechercher la conversation par conversation_id
-                existing_conversation = await self.supabase.table('conversations').select('lead_id').eq('conversation_id', conversation_id).execute()
+                existing_conversation = self.supabase.table('conversations').select('lead_id').eq('conversation_id', conversation_id).execute()
                 if existing_conversation.data:
                     lead_id = existing_conversation.data[0]['lead_id']
                     conversation['lead_id'] = lead_id
@@ -712,9 +712,9 @@ class ChatBot:
                 # Rechercher un lead existant par email ou téléphone
                 existing_lead = None
                 if 'email' in info:
-                    existing_lead = await self.supabase.table('leads').select('id').eq('email', info['email']).execute()
+                    existing_lead = self.supabase.table('leads').select('id').eq('email', info['email']).execute()
                 if not existing_lead and 'phone' in info:
-                    existing_lead = await self.supabase.table('leads').select('id').eq('phone', info['phone']).execute()
+                    existing_lead = self.supabase.table('leads').select('id').eq('phone', info['phone']).execute()
                 
                 if existing_lead and existing_lead.data:
                     lead_id = existing_lead.data[0]['id']
@@ -727,12 +727,12 @@ class ChatBot:
                         "created_at": datetime.utcnow().isoformat(),
                         **{k: info[k] for k in ['first_name', 'last_name', 'email', 'phone'] if k in info}
                     }
-                    lead_response = await self.supabase.table('leads').insert(lead_data).execute()
+                    lead_response = self.supabase.table('leads').insert(lead_data).execute()
                     lead_id = lead_response.data[0]['id']
                     conversation['lead_id'] = lead_id
     
                     # Créer la conversation associée
-                    await self.supabase.table('conversations').insert({
+                    self.supabase.table('conversations').insert({
                         "lead_id": lead_id,
                         "conversation_id": conversation_id,
                         "status": "en_cours",
@@ -741,7 +741,7 @@ class ChatBot:
     
             # Si nous avons un lead_id, mettre à jour les informations patrimoniales
             if lead_id:
-                # Conversion des valeurs pour la table patrimoine_info
+                # Conversion des valeurs
                 conversions = {
                     'income': {
                         "Moins de 30 000€": 25000,
@@ -784,9 +784,9 @@ class ChatBot:
                         except (ValueError, TypeError) as e:
                             logging.error(f"Erreur de conversion pour {source_field}: {e}")
     
-                # Mise à jour des informations patrimoniales si nous avons des données
-                if len(patrimoine_data) > 2:  # Plus que juste lead_id et updated_at
-                    await self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
+                # Mise à jour des informations patrimoniales
+                if len(patrimoine_data) > 2:
+                    self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
     
                 # Mise à jour du lead si nécessaire
                 lead_update_data = {
@@ -796,7 +796,7 @@ class ChatBot:
                 }
                 if lead_update_data:
                     lead_update_data['updated_at'] = datetime.utcnow().isoformat()
-                    await self.supabase.table('leads').update(lead_update_data).eq('id', lead_id).execute()
+                    self.supabase.table('leads').update(lead_update_data).eq('id', lead_id).execute()
     
         except Exception as e:
             logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
@@ -835,7 +835,7 @@ class ChatBot:
             system_prompt = """Extrais les recommandations principales de cette réponse.
             Format attendu : Une liste de recommandations claires et concises."""
             
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -992,7 +992,7 @@ class ChatBot:
     
         try:
             # Générer l'analyse avec GPT
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Tu es Emma, conseillère patrimoniale expérimentée."},
