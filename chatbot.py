@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, Tuple, List, Callable
 import asyncio
 import logging
 import re
+import random
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -618,6 +619,34 @@ class ChatBot:
                 'content': "Je suis désolée, une erreur s'est produite.",
                 'options': []
             }
+
+    def generate_unique_id() -> str:
+        """Génère un identifiant unique pour une conversation"""
+        timestamp = int(datetime.utcnow().timestamp() * 1000)
+        random_suffix = ''.join(random.choices('0123456789abcdef', k=8))
+        return f"conv_{timestamp}_{random_suffix}"
+    
+    async def get_or_create_conversation(self, conversation_id: str) -> str:
+        """Récupère une conversation existante ou en crée une nouvelle"""
+        try:
+            # Vérifier si la conversation existe déjà
+            existing_conv = self.supabase.table('conversations')\
+                .select('conversation_id')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+            
+            # Si la conversation existe, retourner l'ID
+            if existing_conv.data:
+                return conversation_id
+            
+            # Sinon, générer un nouvel ID
+            new_id = self.generate_unique_id()
+            return new_id
+                
+        except Exception as e:
+            logging.error(f"Erreur lors de la vérification de la conversation: {str(e)}")
+            # En cas d'erreur, générer un nouvel ID
+            return self.generate_unique_id()
     
     # Ajout d'une méthode pour sauvegarder les messages
     async def save_conversation_message(self, conversation_id: str, content: str, message_type: str, extracted_info: dict = None):
@@ -627,22 +656,40 @@ class ChatBot:
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
             
-            # Si pas de conversation_id dans Supabase, la créer
-            conv_record = self.supabase.table('conversations')\
-                .select('id')\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-                
-            if not conv_record.data:
-                # Créer la conversation si elle n'existe pas
-                conv_insert = self.supabase.table('conversations').insert({
-                    'conversation_id': conversation_id,
-                    'status': 'en_cours',
-                    'lead_id': conversation.get('lead_id'),
-                    'created_at': datetime.utcnow().isoformat()
-                }).execute()
-                conv_db_id = conv_insert.data[0]['id']
-            else:
+            # Si pas de conversation_id dans Supabase, vérifier/créer
+            try:
+                conv_record = self.supabase.table('conversations')\
+                    .select('id')\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
+                    
+                if not conv_record.data:
+                    # Vérifier si on doit générer un nouvel ID
+                    actual_conv_id = await self.get_or_create_conversation(conversation_id)
+                    if actual_conv_id != conversation_id:
+                        conversation_id = actual_conv_id
+                        # Mettre à jour l'ID dans le stockage local
+                        self.conv_storage._conversations[actual_conv_id] = self.conv_storage._conversations.pop(conversation_id, {})
+                    
+                    # Créer la conversation avec le nouvel ID
+                    conv_insert = self.supabase.table('conversations').insert({
+                        'conversation_id': actual_conv_id,
+                        'status': 'en_cours',
+                        'lead_id': conversation.get('lead_id'),
+                        'created_at': datetime.utcnow().isoformat()
+                    }).execute()
+                    conv_db_id = conv_insert.data[0]['id']
+                else:
+                    conv_db_id = conv_record.data[0]['id']
+    
+            except Exception as e:
+                if 'duplicate key value' not in str(e):
+                    raise
+                # Si erreur de doublon, récupérer l'enregistrement existant
+                conv_record = self.supabase.table('conversations')\
+                    .select('id')\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
                 conv_db_id = conv_record.data[0]['id']
     
             # Préparer les métadonnées du message
