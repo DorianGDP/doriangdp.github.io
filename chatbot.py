@@ -3,7 +3,7 @@ from supabase import create_client
 import os
 import json
 from datetime import datetime
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Optional, Dict, Any, Tuple, List, Callable
 import asyncio
 import logging
 import re
@@ -50,58 +50,79 @@ class ConversationStorage:
         conv = self.get_conversation(conversation_id)
         return conv.get('info_collected', {})
 
+import re
+from typing import Dict, Any, Optional, List, Tuple, Callable
+from datetime import datetime
+
 class InfoCollector:
     def __init__(self):
         self.info_sequence = [
             {
-                'field': 'initial_query',
-                'type': 'text',
-                'store': False,
-                'required': False
-            },
-            {
                 'field': 'first_name',
-                'question': "Pour mieux vous accompagner, puis-je avoir votre prénom ?",
+                'question': "Pour commencer, quel est votre prénom ?",
                 'required': True,
                 'type': 'text',
-                'validator': lambda x: len(x.strip()) > 1,
-                'error_message': "Pourriez-vous me donner votre prénom ?"
+                'validation_rules': {
+                    'min_length': 2,
+                    'no_numbers': True,
+                    'regex': r'^[A-Za-zÀ-ÿ\-\s]{2,30}$'
+                },
+                'error_message': "Je n'ai pas bien compris votre prénom. Pourriez-vous le répéter ?",
+                'extraction_hints': ['prénom', 'je m\'appelle', 'je suis']
             },
             {
                 'field': 'last_name',
-                'question': "Pour mieux personnaliser mes conseils, quel est votre nom de famille ?",
+                'question': lambda info: f"Merci {info.get('first_name')}. Et quel est votre nom de famille ?",
                 'required': True,
                 'type': 'text',
-                'validator': lambda x: len(x.strip()) > 1,
-                'error_message': "Pourriez-vous me donner votre nom de famille ?"
-            },
-            {
-                'field': 'email',
-                'question': "Pour pouvoir vous envoyer des informations détaillées plus tard, quelle est votre adresse email ?",
-                'required': True,
-                'type': 'text',
-                'validator': lambda x: '@' in x and '.' in x.split('@')[1],
-                'error_message': "Cette adresse email ne semble pas valide. Pourriez-vous la vérifier ?"
-            },
-            {
-                'field': 'phone',
-                'question': "Pour pouvoir échanger de manière plus personnalisée, quel est votre numéro de téléphone ?",
-                'required': True,
-                'type': 'text',
-                'validator': lambda x: x.replace(' ', '').isdigit() and len(x.replace(' ', '')) == 10,
-                'error_message': "Ce numéro ne semble pas valide. Pourriez-vous me donner un numéro à 10 chiffres ?"
+                'validation_rules': {
+                    'min_length': 2,
+                    'no_numbers': True,
+                    'regex': r'^[A-Za-zÀ-ÿ\-\s]{2,30}$'
+                },
+                'error_message': "Je n'ai pas bien saisi votre nom de famille. Pourriez-vous le répéter ?",
+                'extraction_hints': ['nom', 'nom de famille']
             },
             {
                 'field': 'age',
-                'question': "Pour adapter au mieux mes conseils à votre situation, quel âge avez-vous ?",
+                'question': lambda info: f"Parfait {info.get('first_name')}. Pour mieux vous conseiller, quel âge avez-vous ?",
                 'required': True,
-                'type': 'text',
-                'validator': lambda x: x.isdigit() and 18 <= int(x) <= 100,
-                'error_message': "Pourriez-vous me donner votre âge en chiffres ?"
+                'type': 'number',
+                'validation_rules': {
+                    'min_value': 18,
+                    'max_value': 100,
+                    'regex': r'\b\d{1,2}\b'
+                },
+                'error_message': "Pourriez-vous me préciser votre âge en chiffres ? Il doit être compris entre 18 et 100 ans.",
+                'extraction_hints': ['ans', 'age', 'âge']
+            },
+            {
+                'field': 'email',
+                'question': "Pour pouvoir vous envoyer des informations personnalisées, quelle est votre adresse email ?",
+                'required': True,
+                'type': 'email',
+                'validation_rules': {
+                    'email_format': True,
+                    'regex': r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+                },
+                'error_message': "Cette adresse email ne semble pas valide. Pourriez-vous la vérifier ?",
+                'extraction_hints': ['email', '@', 'mail', 'adresse électronique']
+            },
+            {
+                'field': 'phone',
+                'question': "Et votre numéro de téléphone pour un échange plus personnalisé ?",
+                'required': True,
+                'type': 'phone',
+                'validation_rules': {
+                    'phone_format': True,
+                    'regex': r'^(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}$'
+                },
+                'error_message': "Ce numéro ne semble pas valide. Pourriez-vous me donner un numéro à 10 chiffres ?",
+                'extraction_hints': ['téléphone', 'portable', 'mobile', 'fixe']
             },
             {
                 'field': 'profession',
-                'question': "Pour mieux comprendre votre profil, quelle est votre situation professionnelle actuelle ?",
+                'question': "Quelle est votre situation professionnelle actuelle ?",
                 'required': True,
                 'type': 'choice',
                 'options': [
@@ -112,11 +133,13 @@ class InfoCollector:
                     "Indépendant / Auto-entrepreneur",
                     "Retraité",
                     "Autre"
-                ]
+                ],
+                'error_message': "Je vous propose de choisir parmi les options suivantes :",
+                'extraction_hints': ['travail', 'métier', 'profession', 'emploi']
             },
             {
                 'field': 'income',
-                'question': "Pour affiner mes recommandations, dans quelle tranche de revenus annuels vous situez-vous ?",
+                'question': lambda info: self._generate_income_question(info),
                 'required': True,
                 'type': 'choice',
                 'options': [
@@ -124,11 +147,13 @@ class InfoCollector:
                     "30 000€ - 50 000€",
                     "50 000€ - 100 000€",
                     "Plus de 100 000€"
-                ]
+                ],
+                'error_message': "Pourriez-vous choisir parmi les tranches de revenus suivantes :",
+                'extraction_hints': ['revenus', 'salaire', 'gagner', 'euros par an', '€/an']
             },
             {
                 'field': 'patrimoine',
-                'question': "Pour terminer et vous proposer les meilleures solutions, quel est le montant approximatif de votre patrimoine actuel ?",
+                'question': lambda info: self._generate_patrimoine_question(info),
                 'required': True,
                 'type': 'choice',
                 'options': [
@@ -136,56 +161,171 @@ class InfoCollector:
                     "50 000€ - 200 000€",
                     "200 000€ - 500 000€",
                     "Plus de 500 000€"
-                ]
+                ],
+                'error_message': "Merci de choisir parmi les tranches de patrimoine suivantes :",
+                'extraction_hints': ['patrimoine', 'possède', 'valeur', 'fortune']
+            },
+            {
+                'field': 'situation_familiale',
+                'question': "Quelle est votre situation familiale ?",
+                'required': True,
+                'type': 'choice',
+                'options': [
+                    "Célibataire",
+                    "Marié(e)",
+                    "Pacsé(e)",
+                    "Divorcé(e)",
+                    "Veuf/Veuve"
+                ],
+                'error_message': "Pouvez-vous préciser votre situation parmi les choix suivants :",
+                'extraction_hints': ['marié', 'célibataire', 'pacsé', 'divorcé', 'veuf']
+            },
+            {
+                'field': 'objectifs',
+                'question': lambda info: self._generate_objectives_question(info),
+                'required': True,
+                'type': 'choice',
+                'options': [
+                    "Préparer ma retraite",
+                    "Optimiser ma fiscalité",
+                    "Investir dans l'immobilier",
+                    "Protéger mes proches",
+                    "Transmettre mon patrimoine",
+                    "Développer mon patrimoine",
+                    "Autre"
+                ],
+                'multiple': True,
+                'error_message': "Quels sont vos principaux objectifs parmi les suivants :",
+                'extraction_hints': ['objectif', 'but', 'souhaite', 'veux', 'aimerais']
             }
         ]
 
-    def get_next_info(self, collected_info: dict) -> tuple:
+    def _generate_income_question(self, info: dict) -> str:
+        """Génère une question personnalisée sur les revenus selon le profil"""
+        if info.get('profession') == "Retraité":
+            return f"D'accord {info.get('first_name')}. Quel est le montant de vos pensions de retraite annuelles ?"
+        elif info.get('profession') in ["Chef d'entreprise", "Profession libérale", "Indépendant / Auto-entrepreneur"]:
+            return f"En tant que {info.get('profession').lower()}, dans quelle tranche se situent vos revenus annuels ?"
+        return "Dans quelle tranche de revenus annuels vous situez-vous ?"
+
+    def _generate_patrimoine_question(self, info: dict) -> str:
+        """Génère une question personnalisée sur le patrimoine selon le profil"""
+        if int(info.get('age', 0)) > 50:
+            return "Après ces années d'activité, dans quelle tranche estimez-vous votre patrimoine global ?"
+        elif info.get('profession') in ["Chef d'entreprise", "Profession libérale"]:
+            return "En incluant votre outil professionnel, dans quelle tranche de patrimoine vous situez-vous ?"
+        return "Concernant votre patrimoine global actuel, dans quelle tranche vous situez-vous ?"
+
+    def _generate_objectives_question(self, info: dict) -> str:
+        """Génère une question personnalisée sur les objectifs selon le profil"""
+        age = int(info.get('age', 0))
+        profession = info.get('profession', '')
+        
+        if age > 50:
+            return f"À {age} ans, quels sont vos principaux objectifs patrimoniaux ? (plusieurs choix possibles)"
+        elif profession in ["Chef d'entreprise", "Profession libérale"]:
+            return f"En tant que {profession.lower()}, quels sont vos objectifs patrimoniaux prioritaires ?"
+        elif age < 35:
+            return "En tant que jeune actif, quels sont vos objectifs patrimoniaux ? (plusieurs choix possibles)"
+        return "Parmi les objectifs suivants, lesquels vous intéressent le plus ? (plusieurs choix possibles)"
+
+    def get_current_field(self, collected_info: dict) -> Optional[str]:
+        """Détermine le prochain champ à collecter"""
         for info in self.info_sequence:
-            if info['field'] not in collected_info or (
-                info.get('required', True) and not collected_info[info['field']]
-            ):
-                question = info.get('question', '')
-                if '{first_name}' in question and 'first_name' in collected_info:  # Changé de 'name' à 'first_name'
-                    first_name = collected_info['first_name']  # Utilise directement first_name
-                    question = question.format(first_name=first_name)
-                return info['field'], {
-                    'question': question,
-                    'type': info.get('type', 'text'),
-                    'options': info.get('options', [])
-                }
-        return None, None
+            if info['field'] not in collected_info or not collected_info[info['field']]:
+                return info['field']
+        return None
 
-    def is_collection_complete(self, collected_info: dict) -> bool:
-        """Vérifie si toutes les informations requises ont été collectées"""
-        return all(
-            info['field'] in collected_info and 
-            (not info.get('required', True) or collected_info[info['field']])
-            for info in self.info_sequence 
-        )
-
-    def validate_input(self, field: str, value: str, collected_info: dict) -> tuple:
-        """Valide une entrée utilisateur"""
+    def get_field_info(self, field: str) -> Optional[dict]:
+        """Récupère toutes les informations d'un champ"""
         for info in self.info_sequence:
             if info['field'] == field:
-                if field == 'age':
-                    try:
-                        # Nettoyer la valeur pour extraire juste le nombre
-                        age_value = ''.join(filter(str.isdigit, str(value)))
-                        if age_value and 18 <= int(age_value) <= 100:
-                            return True, None
-                        return False, "Pourriez-vous me donner votre âge (entre 18 et 100 ans) ?"
-                    except Exception:
-                        return False, "Pourriez-vous me donner votre âge en chiffres ?"
-                elif info.get('validator'):
-                    try:
-                        is_valid = info['validator'](value)
-                        return is_valid, info.get('error_message') if not is_valid else None
-                    except Exception:
-                        return False, info.get('error_message')
-                elif info.get('type') == 'choice':
-                    return value in info['options'], "Veuillez choisir une des options proposées."
-        return True, None
+                return info
+        return None
+
+    def get_field_question(self, field: str, collected_info: dict) -> str:
+        """Récupère la question pour un champ donné"""
+        field_info = self.get_field_info(field)
+        if not field_info:
+            return None
+            
+        question = field_info['question']
+        if callable(question):
+            return question(collected_info)
+        return question
+        
+    def get_field_options(self, field: str) -> list:
+        """Récupère les options pour un champ donné"""
+        field_info = self.get_field_info(field)
+        if field_info and field_info.get('type') == 'choice':
+            return field_info.get('options', [])
+        return []
+        
+    def validate_response(self, field: str, value: str, collected_info: dict) -> Tuple[bool, Optional[str], Optional[str]]:
+        field_info = self.get_field_info(field)
+        if not field_info:
+            return False, None, "Champ inconnu"
+    
+        value = value.strip()
+        if not value:
+            return False, None, field_info['error_message']
+    
+        # Ajout de la validation pour les choix multiples
+        if field_info.get('multiple', False) and field_info['type'] == 'choice':
+            values = [v.strip() for v in value.split(',')]
+            valid_values = [v for v in values if v in field_info['options']]
+            if valid_values:
+                return True, valid_values, None
+
+        # Validation par regex si définie
+        if 'regex' in field_info['validation_rules']:
+            pattern = field_info['validation_rules']['regex']
+            if not re.match(pattern, value):
+                return False, None, field_info['error_message']
+
+        # Validations spécifiques
+        if field_info['type'] == 'number':
+            try:
+                num_value = int(value)
+                min_val = field_info['validation_rules'].get('min_value', float('-inf'))
+                max_val = field_info['validation_rules'].get('max_value', float('inf'))
+                if not (min_val <= num_value <= max_val):
+                    return False, None, field_info['error_message']
+                return True, str(num_value), None
+            except ValueError:
+                return False, None, field_info['error_message']
+
+        return True, value, None
+
+    def extract_info_from_message(self, message: str, field: str) -> Optional[str]:
+        """Tente d'extraire l'information demandée du message"""
+        field_info = self.get_field_info(field)
+        if not field_info:
+            return None
+
+        # Si c'est un choix, chercher une correspondance exacte
+        if field_info['type'] == 'choice':
+            for option in field_info['options']:
+                if option.lower() in message.lower():
+                    return option
+            return None
+
+        # Pour les autres types, utiliser les indices d'extraction
+        for hint in field_info.get('extraction_hints', []):
+            if hint.lower() in message.lower():
+                # Extraire le contexte autour de l'indice
+                index = message.lower().find(hint.lower())
+                start = max(0, index - 20)
+                end = min(len(message), index + len(hint) + 20)
+                context = message[start:end]
+                
+                # Appliquer la regex si définie
+                if 'regex' in field_info['validation_rules']:
+                    matches = re.findall(field_info['validation_rules']['regex'], context)
+                    if matches:
+                        return matches[0]
+
+        return None
 
     def is_collection_complete(self, collected_info: dict) -> bool:
         """Vérifie si toutes les informations requises ont été collectées"""
@@ -194,6 +334,18 @@ class InfoCollector:
             for info in self.info_sequence 
             if info['required']
         )
+
+    def get_completion_percentage(self, collected_info: dict) -> int:
+        """Calcule le pourcentage de complétion des informations"""
+        required_fields = [info['field'] for info in self.info_sequence if info['required']]
+        if not required_fields:
+            return 100
+            
+        collected_required = sum(
+            1 for field in required_fields 
+            if field in collected_info and collected_info[field]
+        )
+        return int((collected_required / len(required_fields)) * 100)
         
 class ChatBot:
     def __init__(self, api_key: str):
@@ -207,65 +359,75 @@ class ChatBot:
         supabase_key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(supabase_url, supabase_key)
 
-    async def extract_info_from_message(self, message: str) -> dict:
+    async def process_response(
+        self,
+        user_message: str,
+        conversation_id: str,
+        collected_info: dict,
+        current_field: str
+    ) -> dict:
+        """Traite la réponse de l'utilisateur et génère la prochaine interaction"""
+        
+        system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
+        
+        CONTEXTE:
+        - Question initiale du client: {collected_info.get('initial_query', '')}
+        - Prénom connu: {collected_info.get('first_name', '')}
+        - Champ actuel: {current_field}
+        
+        DIRECTIVES:
+        1. Sois naturelle et empathique dans tes réponses
+        2. Si la réponse est valide, fais un bref retour positif avant de passer à la suite
+        3. Si la réponse est invalide, explique poliment pourquoi et redemande l'information
+        4. Adapte ton langage selon le profil (plus formel si patrimoine élevé)
+        5. N'utilise jamais "enchantée" après le premier message
+        6. Ne pose qu'une seule question à la fois
+        
+        INFORMATIONS COLLECTÉES:
+        {json.dumps(collected_info, indent=2)}
+
+        RÉPONSE ATTENDUE:
+        {
+            "is_valid": bool,  # La réponse est-elle valide ?
+            "extracted_value": str,  # Valeur extraite de la réponse
+            "next_message": str,  # Message à envoyer à l'utilisateur
+            "should_proceed": bool  # Faut-il passer à la question suivante ?
+        }"""
+
         try:
-            # Nettoyer le message
-            message = message.strip()
-            
-            # Vérifier d'abord si c'est un nom complet
-            words = message.split()
-            if len(words) == 2 and all(not any(char.isdigit() for char in word) for word in words):
-                return {
-                    'first_name': words[0].strip().capitalize(),
-                    'last_name': words[1].strip().capitalize()
-                }
-            
-            # Si c'est un seul mot sans chiffres, c'est probablement un prénom ou un nom
-            if len(words) == 1 and not any(char.isdigit() for char in words[0]):
-                # On vérifie si on a déjà un prénom
-                if message.lower().endswith('marty'):  # Exemple pour le nom de famille Marty
-                    return {'last_name': words[0].strip().capitalize()}
-                else:
-                    return {'first_name': words[0].strip().capitalize()}
-            
-            # Vérifier l'âge
-            age_match = re.search(r'\b(\d+)(?:\s*(?:ans?))?\b', message)
-            if age_match and not '@' in message and not any(c.isalpha() for c in message.replace('ans', '')):
-                age = age_match.group(1)
-                if 18 <= int(age) <= 100:
-                    return {'age': age}
-    
-            # Vérifier l'email
-            if '@' in message and '.' in message:
-                email = message.strip()
-                if '@' in email and '.' in email.split('@')[1]:
-                    return {'email': email.lower()}
-    
-            # Vérifier le téléphone
-            phone = ''.join(filter(str.isdigit, message))
-            if len(phone) == 10 and phone.isdigit():
-                return {'phone': phone}
-    
-            # Pour les autres cas, utiliser GPT
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Extrais uniquement les informations explicitement mentionnées."},
-                    {"role": "user", "content": f"""Extrait en JSON :
-                        - profession: métier exact mentionné
-                        - income: tranche de revenus
-                        - patrimoine: montant patrimoine
-                        Message: {message}"""}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Message du client: {user_message}"}
                 ],
-                temperature=0.1,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                temperature=0.7
             )
-    
-            return json.loads(response.choices[0].message.content)
-    
+
+            result = json.loads(response.choices[0].message.content)
+            
+            # Si la réponse est valide, mettre à jour la base de données
+            if result["is_valid"] and result["extracted_value"]:
+                await self.update_database(conversation_id, {current_field: result["extracted_value"]})
+                
+            return {
+                'type': 'text',
+                'content': result["next_message"],
+                'options': self.info_collector.get_field_options(current_field),
+                'valid': result["is_valid"],
+                'should_proceed': result["should_proceed"]
+            }
+
         except Exception as e:
-            print(f"Error in extract_info_from_message: {str(e)}")
-            return {}
+            logging.error(f"Erreur dans process_response: {str(e)}")
+            return {
+                'type': 'text',
+                'content': "Je suis désolée, j'ai rencontré une difficulté. Pourriez-vous reformuler votre réponse ?",
+                'options': [],
+                'valid': False,
+                'should_proceed': False
+            }
 
     async def generate_response(self, message: str, field: str, next_info: dict, collected_info: dict) -> dict:
         try:
@@ -331,6 +493,11 @@ class ChatBot:
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
             lead_id = conversation.get('lead_id')
+            
+            # Assurer que l'information est valide avant la mise à jour
+            if not info or not any(info.values()):
+                logging.warning(f"Tentative de mise à jour avec des informations invalides: {info}")
+                return
             
             # Vérifier si une conversation existe déjà
             if not lead_id:
@@ -405,90 +572,80 @@ class ChatBot:
             raise
 
 
-    async def generer_analyse_finale(self, info_collected: dict) -> str:
+
+    async def generate_final_analysis(self, collected_info: dict) -> str:
+        """Génère l'analyse finale et les recommandations"""
+        
+        prompt = f"""En tant que conseillère en gestion de patrimoine, fais une analyse personnalisée:
+
+        PROFIL CLIENT:
+        {json.dumps(collected_info, indent=2)}
+
+        STRUCTURE DE LA RÉPONSE:
+        1. Remerciement personnalisé avec le prénom
+        2. Bref résumé de la situation patrimoniale
+        3. Réponse précise à la question initiale: {collected_info.get('initial_query')}
+        4. 2-3 recommandations personnalisées
+        5. Proposition de rendez-vous pour approfondir
+
+        CONSIGNES:
+        - Sois précise et professionnelle
+        - Montre que tu as bien compris leurs enjeux
+        - Donne des conseils concrets mais garde des éléments pour le RDV
+        - Termine par une incitation à l'action claire"""
+
         try:
-            prompt = f"""En tant que conseillère patrimoniale, fais une analyse concise :
-    
-            Question initiale : {info_collected.get('initial_query')}
-            Infos client : {json.dumps(info_collected, indent=2)}
-    
-            Format court :
-            1. Résumé de la situation
-            2. Réponse à la question
-            3. 1-2 recommandations clés
-            4. Proposition de RDV"""
-    
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Tu es Emma, conseillère patrimoniale. Sois concise et précise."},
+                    {"role": "system", "content": "Tu es Emma, conseillère patrimoniale expérimentée."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=300,  # Limite la longueur de l'analyse
                 temperature=0.7
             )
-    
-            return response.choices[0].message.content
-    
-        except Exception as e:
-            print(f"Error in generer_analyse_finale: {str(e)}")
-            return "Je suis désolée, je ne peux pas générer l'analyse pour le moment."
 
+            return response.choices[0].message.content
+
+        except Exception as e:
+            logging.error(f"Erreur dans generate_final_analysis: {str(e)}")
+            return "Je suis désolée, je ne peux pas générer l'analyse complète pour le moment. Un conseiller va vous recontacter rapidement."
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
+        """Point d'entrée principal pour le traitement des messages"""
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
-    
-            # Enregistrer la question initiale si c'est le premier message
+
+            # Enregistrer la question initiale si première interaction
             if not collected_info.get('initial_query'):
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
-                collected_info = conversation['info_collected']
-    
-            # Extraction des informations du message
-            extracted_info = await self.extract_info_from_message(question)
-            
-            # Mise à jour des informations extraites
-            info_updated = False
-            for field, value in extracted_info.items():
-                if field not in collected_info:
-                    is_valid, error_message = self.info_collector.validate_input(field, value, collected_info)
-                    if is_valid:
-                        self.conv_storage.update_info(conversation_id, {field: value})
-                        await self.update_database(conversation_id, {field: value})
-                        collected_info = conversation['info_collected']
-                        info_updated = True
-                    else:
-                        return {
-                            'type': 'text',
-                            'content': error_message or "Cette information ne semble pas valide. Pourriez-vous réessayer ?",
-                            'options': []
-                        }
-    
-            # Obtenir la prochaine information nécessaire
-            field, next_info = self.info_collector.get_next_info(collected_info)
-    
-            # Vérifier si la collecte est terminée
-            if self.info_collector.is_collection_complete(collected_info):
                 return {
                     'type': 'text',
-                    'content': await self.generer_analyse_finale(collected_info),
+                    'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux répondre à votre question, j'aimerais en savoir un peu plus sur vous. Tout d'abord, quel est votre prénom ?",
                     'options': []
                 }
-    
-            # Générer la prochaine question
-            response = await self.generate_response(question, field, next_info, collected_info)
-            
-            # Si des informations ont été mises à jour mais la réponse contient "enchantée", la modifier
-            if info_updated and "enchantée" in response.get('content', ''):
-                response['content'] = response['content'].replace("enchantée", "").replace("Bonjour", "Merci")
-            
+
+            # Déterminer le champ actuel et traiter la réponse
+            current_field = self.info_collector.get_current_field(collected_info)
+            response = await self.process_response(question, conversation_id, collected_info, current_field)
+
+            # Si la réponse est valide et qu'il faut passer à la suite
+            if response['valid'] and response['should_proceed']:
+                # Vérifier si toutes les informations sont collectées
+                if self.info_collector.is_collection_complete(collected_info):
+                    final_analysis = await self.generate_final_analysis(collected_info)
+                    return {
+                        'type': 'text',
+                        'content': final_analysis,
+                        'options': []
+                    }
+
             return response
-    
+
         except Exception as e:
-            print(f"Error in repondre_question: {str(e)}")
+            logging.error(f"Erreur dans repondre_question: {str(e)}")
             return {
                 'type': 'text',
-                'content': "Je suis désolée, une erreur s'est produite. Pourriez-vous reformuler votre réponse ?",
+                'content': "Je suis désolée, une erreur s'est produite. Pouvons-nous reprendre notre conversation ?",
                 'options': []
             }
