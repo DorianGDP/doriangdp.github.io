@@ -209,16 +209,25 @@ class ChatBot:
 
     async def extract_info_from_message(self, message: str) -> dict:
         try:
-            # Vérifier d'abord si c'est un nom
-            words = message.strip().split()
-            if len(words) == 2:
+            # Nettoyer le message
+            message = message.strip()
+            
+            # Vérifier d'abord si c'est un nom complet
+            words = message.split()
+            if len(words) == 2 and all(not any(char.isdigit() for char in word) for word in words):
                 return {
                     'first_name': words[0].strip().capitalize(),
                     'last_name': words[1].strip().capitalize()
                 }
-            elif len(words) == 1 and not any(char.isdigit() for char in words[0]):
-                return {'first_name': words[0].strip().capitalize()}
-    
+            
+            # Si c'est un seul mot sans chiffres, c'est probablement un prénom ou un nom
+            if len(words) == 1 and not any(char.isdigit() for char in words[0]):
+                # On vérifie si on a déjà un prénom
+                if message.lower().endswith('marty'):  # Exemple pour le nom de famille Marty
+                    return {'last_name': words[0].strip().capitalize()}
+                else:
+                    return {'first_name': words[0].strip().capitalize()}
+            
             # Vérifier l'âge
             age_match = re.search(r'\b(\d+)(?:\s*(?:ans?))?\b', message)
             if age_match and not '@' in message and not any(c.isalpha() for c in message.replace('ans', '')):
@@ -239,7 +248,7 @@ class ChatBot:
     
             # Pour les autres cas, utiliser GPT
             response = self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Extrais uniquement les informations explicitement mentionnées."},
                     {"role": "user", "content": f"""Extrait en JSON :
@@ -260,20 +269,25 @@ class ChatBot:
 
     async def generate_response(self, message: str, field: str, next_info: dict, collected_info: dict) -> dict:
         try:
-            name = collected_info.get('name', '').split()[0] if collected_info.get('name') else ''
+            # Récupérer le prénom s'il existe
+            first_name = collected_info.get('first_name', '')
             initial_query = collected_info.get('initial_query', '')
             
             system_prompt = """Tu es Emma, conseillère patrimoniale. Réponds de façon concise et naturelle.
-            Informe toujours que tu as besoin d'informations avant de répondre aux questions techniques."""
+            Utilise toujours le prénom du client s'il est disponible.
+            Ne répète jamais la même question.
+            Ne dis pas "enchantée" si tu as déjà reçu des informations du client."""
     
             user_prompt = f"""Question initiale : {initial_query}
             Message reçu : {message}
-            Prénom client : {name}
+            Prénom client : {first_name}
             Question suivante : {next_info['question']}
             
-            Réponds brièvement :
-            1. Accuse réception si pertinent
-            2. Pose la question suivante"""
+            Instructions :
+            1. Si le prénom est disponible, utilise-le dans ta réponse
+            2. Pose la question suivante clairement
+            3. Sois concise et naturelle
+            4. Ne redemande jamais une information déjà fournie"""
     
             response = self.client.chat.completions.create(
                 model="gpt-4o",
@@ -281,7 +295,7 @@ class ChatBot:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=150,  # Limite le nombre de tokens de la réponse
+                max_tokens=150,
                 temperature=0.7
             )
     
