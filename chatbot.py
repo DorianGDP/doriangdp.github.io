@@ -648,10 +648,10 @@ class ChatBot:
                             "updated_at": datetime.utcnow().isoformat()
                         }
                     ).execute()
-        
-            except Exception as e:
-                logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
-                raise
+    
+        except Exception as e:
+            logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
+            raise
 
     async def generate_final_analysis(self, collected_info: dict) -> str:
         """Génère l'analyse finale et les recommandations"""
