@@ -491,11 +491,6 @@ class ChatBot:
             conversation = self.conv_storage.get_conversation(conversation_id)
             lead_id = conversation.get('lead_id')
             
-            # Assurer que l'information est valide avant la mise à jour
-            if not info or not any(info.values()):
-                logging.warning(f"Tentative de mise à jour avec des informations invalides: {info}")
-                return
-            
             # Vérifier si une conversation existe déjà
             if not lead_id:
                 existing_conversation = self.supabase.table('conversations').select('lead_id').eq('conversation_id', conversation_id).execute()
