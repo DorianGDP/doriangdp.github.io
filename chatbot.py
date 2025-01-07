@@ -243,14 +243,19 @@ class InfoCollector:
         return None
 
     def get_field_question(self, field: str, collected_info: dict) -> str:
-        """Récupère la question pour un champ donné"""
+        """Récupère la question pour un champ donné avec un contexte personnalisé"""
         field_info = self.get_field_info(field)
         if not field_info:
             return None
             
         question = field_info['question']
         if callable(question):
-            return question(collected_info)
+            try:
+                return question(collected_info)
+            except Exception as e:
+                logging.error(f"Erreur lors de la génération de la question dynamique: {str(e)}")
+                # Question de secours si la génération échoue
+                return self._get_fallback_question(field)
         return question
         
     def get_field_options(self, field: str) -> list:
@@ -259,8 +264,21 @@ class InfoCollector:
         if field_info and field_info.get('type') == 'choice':
             return field_info.get('options', [])
         return []
+
+    def _get_fallback_question(self, field: str) -> str:
+        """Fournit une question de secours si la génération dynamique échoue"""
+        fallback_questions = {
+            'income': "Dans quelle tranche de revenus annuels vous situez-vous ?",
+            'patrimoine': "Dans quelle tranche de patrimoine vous situez-vous ?",
+            'objectifs': "Quels sont vos principaux objectifs patrimoniaux ?",
+        }
+        return fallback_questions.get(field, "Pourriez-vous préciser cette information ?")
         
     def validate_response(self, field: str, value: str, collected_info: dict) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Valide la réponse pour un champ donné
+        Retourne: (is_valid, normalized_value, error_message)
+        """
         field_info = self.get_field_info(field)
         if not field_info:
             return False, None, "Champ inconnu"
@@ -269,32 +287,39 @@ class InfoCollector:
         if not value:
             return False, None, field_info['error_message']
     
-        # Ajout de la validation pour les choix multiples
-        if field_info.get('multiple', False) and field_info['type'] == 'choice':
-            values = [v.strip() for v in value.split(',')]
-            valid_values = [v for v in values if v in field_info['options']]
-            if valid_values:
-                return True, ','.join(valid_values), None # Ajout du join
-            return False, None, field_info['error_message'] # Ajout du cas d'erreur
-
-        # Validation par regex si définie
-        if 'regex' in field_info['validation_rules']:
-            pattern = field_info['validation_rules']['regex']
-            if not re.match(pattern, value):
+        # Validation selon le type de champ
+        if field_info['type'] == 'choice':
+            # Gestion des choix multiples
+            if field_info.get('multiple', False):
+                values = [v.strip() for v in value.split(',')]
+                valid_values = [v for v in values if v in field_info['options']]
+                if valid_values:
+                    return True, ','.join(valid_values), None
                 return False, None, field_info['error_message']
-
-        # Validations spécifiques
-        if field_info['type'] == 'number':
-            try:
-                num_value = int(value)
-                min_val = field_info['validation_rules'].get('min_value', float('-inf'))
-                max_val = field_info['validation_rules'].get('max_value', float('inf'))
-                if not (min_val <= num_value <= max_val):
+            # Choix simple
+            if value in field_info['options']:
+                return True, value, None
+            return False, None, field_info['error_message']
+    
+        # Validation des autres types avec regex
+        if 'validation_rules' in field_info:
+            if 'regex' in field_info['validation_rules']:
+                pattern = field_info['validation_rules']['regex']
+                if not re.match(pattern, value):
                     return False, None, field_info['error_message']
-                return True, str(num_value), None
-            except ValueError:
-                return False, None, field_info['error_message']
-
+    
+            # Validations numériques
+            if field_info['type'] == 'number':
+                try:
+                    num_value = int(value)
+                    min_val = field_info['validation_rules'].get('min_value', float('-inf'))
+                    max_val = field_info['validation_rules'].get('max_value', float('inf'))
+                    if not (min_val <= num_value <= max_val):
+                        return False, None, field_info['error_message']
+                    return True, str(num_value), None
+                except ValueError:
+                    return False, None, field_info['error_message']
+    
         return True, value, None
 
     def extract_info_from_message(self, message: str, field: str) -> Optional[str]:
@@ -376,19 +401,6 @@ class ChatBot:
                 current_field, user_message, collected_info
             )
     
-            # Déterminer la question suivante si la réponse est valide
-            next_field = None
-            next_question = None
-            if is_valid:
-                self.conv_storage.update_info(conversation_id, {current_field: validated_value})
-                await self.update_database(conversation_id, {current_field: validated_value})
-                
-                # Mettre à jour collected_info pour la prochaine question
-                collected_info[current_field] = validated_value
-                next_field = self.info_collector.get_current_field(collected_info)
-                if next_field:
-                    next_question = self.info_collector.get_field_question(next_field, collected_info)
-    
             # Générer une réponse contextuelle avec GPT
             system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
             
@@ -396,7 +408,6 @@ class ChatBot:
             - Question initiale du client: {collected_info.get('initial_query', '')}
             - Champ actuel: {current_field}
             - La réponse est valide: {is_valid}
-            - Prochaine question: {next_question if next_field else "Analyse finale"}
             - Informations déjà collectées: {json.dumps(collected_info, indent=2)}
             
             OBJECTIF:
@@ -410,18 +421,36 @@ class ChatBot:
             2. Si la réponse est valide:
                - Faire un bref retour positif
                - Utiliser le prénom si disponible
-               - Poser la question suivante exactement comme indiquée
+               - Poser la prochaine question de manière naturelle
             3. Si la réponse est invalide:
-               - Expliquer simplement pourquoi la réponse ne convient pas
-               - Redemander l'information de manière précise
-               - Donner un exemple du format attendu"""
+               - Expliquer poliment pourquoi la réponse ne convient pas
+               - Reformuler la question de manière plus claire
+               - Proposer des exemples si nécessaire"""
     
+            if is_valid:
+                # Mettre à jour les informations collectées
+                self.conv_storage.update_info(conversation_id, {current_field: validated_value})
+                await self.update_database(conversation_id, {current_field: validated_value})
+                
+                # Mise à jour du contexte pour la prochaine question
+                updated_info = collected_info.copy()
+                updated_info[current_field] = validated_value
+                
+                # Déterminer la prochaine question
+                next_field = self.info_collector.get_current_field(updated_info)
+                if next_field:
+                    next_question = self.info_collector.get_field_question(next_field, updated_info)
+                    # Ajouter la prochaine question au contexte
+                    system_prompt += f"\n\nPROCHAINE QUESTION À POSER: {next_question}"
+    
+            # Ajout du contexte spécifique au champ
             user_prompt = f"""Message du client: '{user_message}'
             Réponse valide: {is_valid}
             Message d'erreur si invalide: {error_msg}
             Champ actuel: {field_info.get('field')}
             Type de donnée attendue: {field_info.get('type')}
-            Options si choix: {json.dumps(field_info.get('options', []), ensure_ascii=False)}"""
+            Options disponibles: {json.dumps(field_info.get('options', []), ensure_ascii=False)}
+            Question actuelle: {self.info_collector.get_field_question(current_field, collected_info)}"""
     
             response = self.client.chat.completions.create(
                 model="gpt-4o",
@@ -431,12 +460,12 @@ class ChatBot:
                 ],
                 temperature=0.7
             )
+            
             gpt_response = response.choices[0].message.content
     
             if is_valid:
-                # Vérifier si toutes les informations sont collectées
-                if self.info_collector.is_collection_complete(collected_info):
-                    final_analysis = await self.generate_final_analysis(collected_info)
+                if self.info_collector.is_collection_complete(updated_info):
+                    final_analysis = await self.generate_final_analysis(updated_info)
                     return {
                         'type': 'text',
                         'content': final_analysis,
@@ -445,6 +474,7 @@ class ChatBot:
                         'should_proceed': True
                     }
     
+                next_field = self.info_collector.get_current_field(updated_info)
                 return {
                     'type': 'text',
                     'content': gpt_response,
