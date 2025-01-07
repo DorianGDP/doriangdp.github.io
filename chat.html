@@ -111,30 +111,45 @@
     </footer>
 
     <script>
+        // Chat Script
         const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';
+        let conversationId = null;
+        let isConversationActive = false;
+        
+        // Éléments du DOM
         const messagesContainer = document.getElementById('chat-messages');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
-
+        
+        // Gestion de la session
         function generateUniqueId() {
             const timestamp = Date.now();
             const randomStr = Math.random().toString(36).substring(2, 10);
             return `conv_${timestamp}_${randomStr}`;
         }
-
-        // Gestion de l'ID de conversation
-        function getConversationId() {
-            let id = localStorage.getItem('chatConversationId');
-            if (!id) {
-                id = generateUniqueId();
-                localStorage.setItem('chatConversationId', id);
-            }
-            return id;
+        
+        function resetConversation() {
+            // Effacer tous les messages
+            messagesContainer.innerHTML = '';
+            
+            // Générer un nouvel ID de conversation
+            conversationId = generateUniqueId();
+            localStorage.setItem('chatConversationId', conversationId);
+            
+            // Réinitialiser l'état
+            isConversationActive = false;
+            userInput.disabled = false;
+            sendButton.disabled = false;
+            
+            // Afficher le message de bienvenue
+            appendMessage('bot', 
+                "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. " +
+                "Je suis là pour répondre à vos questions et vous accompagner dans vos projets patrimoniaux. " +
+                "Comment puis-je vous aider aujourd'hui ?"
+            );
         }
-
-        let conversationId = getConversationId();
-
-        // Indicateur de frappe
+        
+        // Gestion des messages
         function createTypingIndicator() {
             const typingDiv = document.createElement('div');
             typingDiv.className = 'message-container message-animation';
@@ -155,7 +170,7 @@
             typingDiv.appendChild(innerDiv);
             return typingDiv;
         }
-
+        
         function appendMessage(sender, content, options = []) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message-container message-animation';
@@ -165,15 +180,12 @@
             
             const contentDiv = document.createElement('div');
             contentDiv.className = `p-4 max-w-[80%] whitespace-pre-wrap ${
-                sender === 'user' 
-                    ? 'message-user text-white' 
-                    : 'message-bot text-gray-800'
+                sender === 'user' ? 'message-user text-white' : 'message-bot text-gray-800'
             }`;
             
-            // Rendu du contenu avec support du retour à la ligne
             contentDiv.textContent = String(content);
             
-            // Ajouter les boutons d'options si présents
+            // Ajouter les boutons d'options
             if (options && options.length > 0) {
                 const optionsDiv = document.createElement('div');
                 optionsDiv.className = 'mt-3 space-y-2';
@@ -184,11 +196,7 @@
                     button.textContent = option;
                     button.onclick = () => {
                         sendMessage(option);
-                        // Désactiver tous les boutons après la sélection
-                        optionsDiv.querySelectorAll('button').forEach(btn => {
-                            btn.disabled = true;
-                            btn.className += ' opacity-50 cursor-not-allowed';
-                        });
+                        disableAllOptions(optionsDiv);
                     };
                     optionsDiv.appendChild(button);
                 });
@@ -200,10 +208,18 @@
             messageDiv.appendChild(innerDiv);
             messagesContainer.appendChild(messageDiv);
             
-            // Faire défiler jusqu'au dernier message
+            // Auto-scroll
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
-
+        
+        function disableAllOptions(optionsDiv) {
+            optionsDiv.querySelectorAll('button').forEach(btn => {
+                btn.disabled = true;
+                btn.className += ' opacity-50 cursor-not-allowed';
+            });
+        }
+        
+        // Gestion des envois de messages
         async function sendMessage(message = null) {
             const messageText = message || userInput.value.trim();
             if (!messageText) return;
@@ -214,8 +230,8 @@
         
             try {
                 appendMessage('user', messageText);
-
-                // Ajouter l'indicateur de frappe
+        
+                // Afficher l'indicateur de frappe
                 const typingIndicator = createTypingIndicator();
                 messagesContainer.appendChild(typingIndicator);
         
@@ -231,20 +247,15 @@
                         conversation_id: conversationId
                     })
                 });
-                
-                // Retirer l'indicateur de frappe
+        
                 typingIndicator.remove();
-                
+        
                 if (!response.ok) {
                     throw new Error(`HTTP Error: ${response.status}`);
                 }
-                
+        
                 const data = await response.json();
-                
-                if (data.conversation_id && data.conversation_id !== conversationId) {
-                    conversationId = data.conversation_id;
-                    localStorage.setItem('chatConversationId', conversationId);
-                }
+                isConversationActive = true;
                 
                 appendMessage('bot', data.content, data.options || []);
                 
@@ -254,7 +265,6 @@
         
             } catch (error) {
                 console.error('Error:', error);
-                typingIndicator?.remove();
                 appendMessage('bot', 
                     "Désolé, je rencontre un problème technique. Veuillez réessayer dans quelques instants."
                 );
@@ -263,18 +273,16 @@
                 sendButton.disabled = false;
             }
         }
-
+        
+        // Initialisation et événements
         function initializeChat() {
-            // Message de bienvenue
-            appendMessage('bot', "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Je suis là pour répondre à vos questions et vous accompagner dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
-            
-            // Focus sur l'input
+            resetConversation();
             userInput.focus();
         }
-
+        
         // Event Listeners
         document.addEventListener('DOMContentLoaded', initializeChat);
-
+        
         sendButton.addEventListener('click', () => sendMessage());
         
         userInput.addEventListener('keypress', (e) => {
@@ -283,11 +291,18 @@
                 sendMessage();
             }
         });
-
-        // Gérer la réinitialisation de la conversation
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'chatConversationId') {
-                conversationId = e.newValue || generateUniqueId();
+        
+        // Gestion du chat dans l'iframe
+        window.addEventListener('message', (event) => {
+            if (event.data === 'chatOpened') {
+                resetConversation();
+            }
+        });
+        
+        // Gérer le rechargement de la page
+        window.addEventListener('beforeunload', () => {
+            if (isConversationActive) {
+                resetConversation();
             }
         });
     </script>
