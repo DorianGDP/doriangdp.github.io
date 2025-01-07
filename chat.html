@@ -145,7 +145,6 @@
         }
 
         // Fonction d'envoi de message
-        
         async function sendMessage(message = null) {
             const messageText = message || userInput.value.trim();
             if (!messageText) return;
@@ -166,47 +165,36 @@
                     },
                     body: JSON.stringify({
                         question: messageText,
-                        conversation_id: conversationId
+                        conversation_id: conversationId || `conv_${Date.now()}`
                     })
                 });
                 
                 if (!response.ok) {
-                    throw new Error(`Erreur HTTP: ${response.status}`);
+                    throw new Error(`HTTP Error: ${response.status}`);
                 }
                 
                 const data = await response.json();
-                console.log('Réponse du serveur:', data); // Pour le debug
                 
                 if (data.conversation_id) {
                     conversationId = data.conversation_id;
                     localStorage.setItem('chatConversationId', conversationId);
                 }
                 
-                // Utiliser la réponse du bot avec vérification de la présence des champs
-                const botMessage = data.content || data.reponse || "Désolé, je n'ai pas compris votre demande.";
-                const options = data.options || [];
+                appendMessage('bot', data.content, data.options || []);
                 
-                appendMessage('bot', botMessage, options);
-        
-                // Gestion des options s'il y en a
-                if (options && options.length > 0) {
-                    userInput.disabled = true;
-                    sendButton.disabled = true;
-                } else {
-                    userInput.disabled = false;
-                    sendButton.disabled = false;
-                    userInput.focus();
-                }
+                const hasOptions = data.options && data.options.length > 0;
+                userInput.disabled = hasOptions;
+                sendButton.disabled = hasOptions;
         
             } catch (error) {
-                console.error('Erreur:', error);
-                appendMessage(
-                    'bot',
-                    "Désolé, je rencontre des difficultés techniques. Veuillez réessayer dans quelques instants."
+                console.error('Error:', error);
+                appendMessage('bot', 
+                    "Désolé, je rencontre un problème technique. Veuillez réessayer dans quelques instants."
                 );
+                
                 userInput.disabled = false;
                 sendButton.disabled = false;
-            } 
+            }
         }
 
         // Event Listeners
