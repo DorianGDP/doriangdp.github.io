@@ -3,6 +3,7 @@ from flask_cors import CORS
 from chatbot import ChatBot
 import os
 import traceback
+import asyncio
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -13,51 +14,35 @@ CORS(app, resources={
     }
 })
 
-# Initialisation du chatbot avec la clé API
 chatbot = ChatBot(os.getenv("OPENAI_API_KEY"))
 
 @app.route('/api/chat', methods=['POST'])
 async def chat():
     try:
-        print("Nouvelle requête reçue")
-        data = request.get_json()
-        print(f"Données reçues : {data}")
-
-        if not data:
-            return jsonify({
-                'content': "Données manquantes",
-                'type': 'error'
-            }), 400
-
-        question = data.get('question', '').strip()
-        conversation_id = data.get('conversation_id', '')
-
-        if not question:
+        data = request.json
+        if not data or 'question' not in data:
             return jsonify({
                 'content': "Question manquante",
                 'type': 'error'
             }), 400
 
-        # Obtenir la réponse du chatbot
-        response = await chatbot.repondre_question(question, conversation_id)
-        print(f"Réponse du chatbot : {response}")
+        question = data['question'].strip()
+        conversation_id = data.get('conversation_id', '')
 
-        # Structurer la réponse pour le frontend
-        formatted_response = {
+        response = await chatbot.repondre_question(question, conversation_id)
+        
+        return jsonify({
             'content': response.get('content', ''),
             'type': response.get('type', 'text'),
             'options': response.get('options', []),
-            'conversation_id': conversation_id  # Ajout de l'ID de conversation
-        }
-
-        print(f"Réponse formatée : {formatted_response}")
-        return jsonify(formatted_response)
+            'conversation_id': conversation_id
+        })
 
     except Exception as e:
-        print(f"Erreur serveur: {str(e)}")
+        print(f"Server error: {str(e)}")
         traceback.print_exc()
         return jsonify({
-            'content': "Une erreur s'est produite. Veuillez réessayer.",
+            'content': "Une erreur technique est survenue",
             'type': 'error'
         }), 500
 
