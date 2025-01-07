@@ -617,21 +617,56 @@ class ChatBot:
             return "Je suis désolée, je ne peux pas générer l'analyse complète pour le moment. Un conseiller va vous recontacter rapidement."
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
-        """Point d'entrée principal pour le traitement des messages"""
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
     
-            # Enregistrer la question initiale si première interaction
+            # Première interaction
             if not collected_info.get('initial_query'):
+                # Sauvegarder la question initiale
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
-                return {
-                    'type': 'text',
-                    'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux répondre à votre question, j'aimerais en savoir un peu plus sur vous. Pour commencer, quel est votre prénom ?",
-                    'options': []
-                }
+                
+                # Générer une réponse personnalisée pour la première interaction
+                system_prompt = """Tu es Emma, conseillère en gestion de patrimoine. 
+                
+                TÂCHE:
+                - Accueillir le client chaleureusement
+                - Faire un bref commentaire sur sa demande initiale pour montrer que tu l'as comprise
+                - Introduire naturellement la demande du prénom
+                
+                RÈGLES:
+                - Ne pas répéter mot pour mot sa question
+                - Rester concise et professionnelle
+                - Être empathique et naturelle"""
+                
+                user_prompt = f"Question du client: {question}"
+                
+                try:
+                    response = self.client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=150
+                    )
+                    
+                    return {
+                        'type': 'text',
+                        'content': response.choices[0].message.content,
+                        'options': []
+                    }
+                    
+                except Exception as e:
+                    logging.error(f"Erreur lors de la génération de la première réponse: {str(e)}")
+                    return {
+                        'type': 'text',
+                        'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux vous accompagner dans votre projet, j'aimerais d'abord faire votre connaissance. Quel est votre prénom ?",
+                        'options': []
+                    }
     
-            # Déterminer le champ actuel et traiter la réponse
+            # Pour les interactions suivantes
             current_field = self.info_collector.get_current_field(collected_info)
             return await self.process_response(question, conversation_id, collected_info, current_field)
     
