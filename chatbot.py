@@ -61,7 +61,7 @@ class InfoCollector:
             },
             {
                 'field': 'first_name',
-                'question': "Pour commencer, quel est votre prénom ?",
+                'question': "Pour mieux vous accompagner, puis-je avoir votre prénom ?",
                 'required': True,
                 'type': 'text',
                 'validator': lambda x: len(x.strip()) > 1,
@@ -69,7 +69,7 @@ class InfoCollector:
             },
             {
                 'field': 'last_name',
-                'question': "Et votre nom de famille ?",
+                'question': "Pour mieux personnaliser mes conseils, quel est votre nom de famille ?",
                 'required': True,
                 'type': 'text',
                 'validator': lambda x: len(x.strip()) > 1,
@@ -77,7 +77,7 @@ class InfoCollector:
             },
             {
                 'field': 'email',
-                'question': "Merci {first_name}. Pour pouvoir vous envoyer des informations détaillées, quelle est votre adresse email ?",
+                'question': "Pour pouvoir vous envoyer des informations détaillées plus tard, quelle est votre adresse email ?",
                 'required': True,
                 'type': 'text',
                 'validator': lambda x: '@' in x and '.' in x.split('@')[1],
@@ -85,7 +85,7 @@ class InfoCollector:
             },
             {
                 'field': 'phone',
-                'question': "Parfait. Quel est votre numéro de téléphone pour un échange plus personnalisé ?",
+                'question': "Pour pouvoir échanger de manière plus personnalisée, quel est votre numéro de téléphone ?",
                 'required': True,
                 'type': 'text',
                 'validator': lambda x: x.replace(' ', '').isdigit() and len(x.replace(' ', '')) == 10,
@@ -93,7 +93,7 @@ class InfoCollector:
             },
             {
                 'field': 'age',
-                'question': "Pour adapter au mieux mes conseils, quel âge avez-vous ?",
+                'question': "Pour adapter au mieux mes conseils à votre situation, quel âge avez-vous ?",
                 'required': True,
                 'type': 'text',
                 'validator': lambda x: x.isdigit() and 18 <= int(x) <= 100,
@@ -101,7 +101,7 @@ class InfoCollector:
             },
             {
                 'field': 'profession',
-                'question': "Quelle est votre situation professionnelle actuelle ?",
+                'question': "Pour mieux comprendre votre profil, quelle est votre situation professionnelle actuelle ?",
                 'required': True,
                 'type': 'choice',
                 'options': [
@@ -116,7 +116,7 @@ class InfoCollector:
             },
             {
                 'field': 'income',
-                'question': "Dans quelle tranche de revenus annuels vous situez-vous ?",
+                'question': "Pour affiner mes recommandations, dans quelle tranche de revenus annuels vous situez-vous ?",
                 'required': True,
                 'type': 'choice',
                 'options': [
@@ -128,7 +128,7 @@ class InfoCollector:
             },
             {
                 'field': 'patrimoine',
-                'question': "Quel est le montant approximatif de votre patrimoine actuel ?",
+                'question': "Pour terminer et vous proposer les meilleures solutions, quel est le montant approximatif de votre patrimoine actuel ?",
                 'required': True,
                 'type': 'choice',
                 'options': [
@@ -271,23 +271,24 @@ class ChatBot:
         try:
             # Récupérer le prénom s'il existe
             first_name = collected_info.get('first_name', '')
+            last_name = collected_info.get('last_name', '')
             initial_query = collected_info.get('initial_query', '')
             
             system_prompt = """Tu es Emma, conseillère patrimoniale. Réponds de façon concise et naturelle.
-            Utilise toujours le prénom du client s'il est disponible.
-            Ne répète jamais la même question.
-            Ne dis pas "enchantée" si tu as déjà reçu des informations du client."""
+            Quelques règles importantes:
+            1. Commence toujours par demander le prénom avant le nom
+            2. Si tu as le prénom, utilise-le
+            3. Si tu as le nom de famille mais pas le prénom, demande poliment le prénom
+            4. Justifie naturellement chaque question par un objectif précis
+            5. Ne dis jamais "enchantée" sauf au tout premier message
+            6. Sois concise et évite les formules répétitives"""
     
-            user_prompt = f"""Question initiale : {initial_query}
+            user_prompt = f"""Contexte :
             Message reçu : {message}
             Prénom client : {first_name}
-            Question suivante : {next_info['question']}
-            
-            Instructions :
-            1. Si le prénom est disponible, utilise-le dans ta réponse
-            2. Pose la question suivante clairement
-            3. Sois concise et naturelle
-            4. Ne redemande jamais une information déjà fournie"""
+            Nom client : {last_name}
+            Question initiale : {initial_query}
+            Prochaine information à demander : {next_info['question']}"""
     
             response = self.client.chat.completions.create(
                 model="gpt-4o",
