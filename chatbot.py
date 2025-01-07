@@ -49,10 +49,6 @@ class ConversationStorage:
         conv = self.get_conversation(conversation_id)
         return conv.get('info_collected', {})
 
-import re
-from typing import Dict, Any, Optional, List, Tuple, Callable
-from datetime import datetime
-
 class InfoCollector:
     def __init__(self):
         self.info_sequence = [
@@ -322,38 +318,6 @@ class InfoCollector:
     
         return True, value, None
 
-    async def extract_info_from_message(self, message: str, current_field: str) -> dict:
-        """
-        Extrait les informations pertinentes d'un message utilisateur
-        """
-        try:
-            prompt = f"""Analyse ce message et extrait les informations pertinentes.
-            Contexte: le champ actuellement demandé est '{current_field}'
-            Message: {message}
-            
-            Format de réponse attendu: JSON avec les informations extraites"""
-    
-            response = await self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "Tu es un assistant spécialisé dans l'extraction d'informations."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3
-            )
-    
-            # Tenter de parser la réponse comme du JSON
-            try:
-                extracted_info = json.loads(response.choices[0].message.content)
-            except json.JSONDecodeError:
-                extracted_info = {}
-    
-            return extracted_info
-    
-        except Exception as e:
-            logging.error(f"Erreur lors de l'extraction d'informations: {str(e)}")
-            return {}
-
     def is_collection_complete(self, collected_info: dict) -> bool:
         """Vérifie si toutes les informations requises ont été collectées"""
         return all(
@@ -386,6 +350,111 @@ class ChatBot:
         supabase_key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(supabase_url, supabase_key)
 
+    async def generate_gpt_response(self, user_message: str, collected_info: dict, is_valid: bool, next_question: str = None) -> str:
+        """Génère une réponse GPT contextuelle"""
+        try:
+            system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
+            
+            CONTEXTE:
+            - Question initiale du client: {collected_info.get('initial_query', '')}
+            - Prénom: {collected_info.get('first_name', '')}
+            - Dernière réponse valide: {is_valid}
+            - Prochaine question: {next_question}
+            
+            RÈGLES:
+            1. Si la réponse était valide:
+               - Faire un bref retour positif sans répéter la réponse
+               - Poser directement la question suivante
+               - Ne pas répéter "merci pour votre réponse"
+            2. Rester naturel et empathique
+            3. Une seule question à la fois
+            4. Éviter les formules répétitives"""
+    
+            user_prompt = f"""Message du client: {user_message}
+            Prochaine question à poser: {next_question}"""
+    
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7
+            )
+    
+            return response.choices[0].message.content
+    
+        except Exception as e:
+            logging.error(f"Erreur dans generate_gpt_response: {str(e)}")
+            return "Je suis désolée, pouvons-nous continuer notre conversation ?"
+
+    async def extract_info_from_message(self, message: str, current_field: str) -> dict:
+        """
+        Extrait les informations pertinentes d'un message utilisateur
+        """
+        try:
+            prompt = f"""Analyse ce message et extrait les informations pertinentes.
+            Contexte: le champ actuellement demandé est '{current_field}'
+            Message: {message}
+            
+            Format de réponse attendu: JSON avec les informations extraites"""
+    
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Tu es un assistant spécialisé dans l'extraction d'informations."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+    
+            # Tenter de parser la réponse comme du JSON
+            try:
+                extracted_info = json.loads(response.choices[0].message.content)
+            except json.JSONDecodeError:
+                extracted_info = {}
+    
+            return extracted_info
+    
+        except Exception as e:
+            logging.error(f"Erreur lors de l'extraction d'informations: {str(e)}")
+            return {}
+    
+    async def generate_error_response(self, user_message: str, field_info: dict, error_msg: str, collected_info: dict) -> str:
+        """Génère une réponse pour une erreur de validation"""
+        try:
+            system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine empathique.
+            
+            CONTEXTE:
+            - Prénom du client: {collected_info.get('first_name', '')}
+            - Type d'information demandée: {field_info['field']}
+            - Message d'erreur: {error_msg}
+            
+            RÈGLES:
+            1. Expliquer poliment pourquoi la réponse n'est pas valide
+            2. Donner un exemple de réponse acceptable
+            3. Reformuler la question de manière plus claire
+            4. Rester encourageant et professionnel"""
+    
+            user_prompt = f"""Réponse invalide du client: {user_message}
+            Message d'erreur technique: {error_msg}
+            Format attendu: {field_info.get('validation_rules', {})}"""
+    
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7
+            )
+    
+            return response.choices[0].message.content
+    
+        except Exception as e:
+            logging.error(f"Erreur dans generate_error_response: {str(e)}")
+            return error_msg
+    
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
         try:
             field_info = self.info_collector.get_field_info(current_field)
@@ -527,7 +596,7 @@ class ChatBot:
             Question initiale : {initial_query}
             Prochaine information à demander : {next_info['question']}"""
     
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
