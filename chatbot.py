@@ -340,9 +340,9 @@ class InfoCollector:
         
 class ChatBot:
     def __init__(self, api_key: str):
-        """Initialise le chatbot avec les dépendances nécessaires"""
         self.client = OpenAI(api_key=api_key)
-        self.conv_storage = ConversationStorage()  # Changed from storage to conv_storage
+        self.model = "gpt-4o"  # ou le modèle que vous souhaitez utiliser
+        self.conv_storage = ConversationStorage()
         self.info_collector = InfoCollector()
         
         # Initialisation de Supabase
@@ -373,7 +373,7 @@ class ChatBot:
             user_prompt = f"""Message du client: {user_message}
             Prochaine question à poser: {next_question}"""
     
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -399,7 +399,7 @@ class ChatBot:
             
             Format de réponse attendu: JSON avec les informations extraites"""
     
-            response = await self.client.chat.completions.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Tu es un assistant spécialisé dans l'extraction d'informations."},
@@ -628,14 +628,14 @@ class ChatBot:
             conversation = self.conv_storage.get_conversation(conversation_id)
             
             # Si pas de conversation_id dans Supabase, la créer
-            conv_record = await self.supabase.table('conversations')\
+            conv_record = self.supabase.table('conversations')\
                 .select('id')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
                 
             if not conv_record.data:
                 # Créer la conversation si elle n'existe pas
-                conv_insert = await self.supabase.table('conversations').insert({
+                conv_insert = self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
                     'status': 'en_cours',
                     'lead_id': conversation.get('lead_id'),
@@ -662,7 +662,7 @@ class ChatBot:
                 'created_at': datetime.utcnow().isoformat()
             }
     
-            await self.supabase.table('messages').insert(message_data).execute()
+            self.supabase.table('messages').insert(message_data).execute()
     
         except Exception as e:
             logging.error(f"Erreur lors de la sauvegarde du message: {str(e)}")
