@@ -322,35 +322,37 @@ class InfoCollector:
     
         return True, value, None
 
-    def extract_info_from_message(self, message: str, field: str) -> Optional[str]:
-        """Tente d'extraire l'information demandée du message"""
-        field_info = self.get_field_info(field)
-        if not field_info:
-            return None
-
-        # Si c'est un choix, chercher une correspondance exacte
-        if field_info['type'] == 'choice':
-            for option in field_info['options']:
-                if option.lower() in message.lower():
-                    return option
-            return None
-
-        # Pour les autres types, utiliser les indices d'extraction
-        for hint in field_info.get('extraction_hints', []):
-            if hint.lower() in message.lower():
-                # Extraire le contexte autour de l'indice
-                index = message.lower().find(hint.lower())
-                start = max(0, index - 20)
-                end = min(len(message), index + len(hint) + 20)
-                context = message[start:end]
-                
-                # Appliquer la regex si définie
-                if 'regex' in field_info['validation_rules']:
-                    matches = re.findall(field_info['validation_rules']['regex'], context)
-                    if matches:
-                        return matches[0]
-
-        return None
+    async def extract_info_from_message(self, message: str, current_field: str) -> dict:
+        """
+        Extrait les informations pertinentes d'un message utilisateur
+        """
+        try:
+            prompt = f"""Analyse ce message et extrait les informations pertinentes.
+            Contexte: le champ actuellement demandé est '{current_field}'
+            Message: {message}
+            
+            Format de réponse attendu: JSON avec les informations extraites"""
+    
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Tu es un assistant spécialisé dans l'extraction d'informations."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+    
+            # Tenter de parser la réponse comme du JSON
+            try:
+                extracted_info = json.loads(response.choices[0].message.content)
+            except json.JSONDecodeError:
+                extracted_info = {}
+    
+            return extracted_info
+    
+        except Exception as e:
+            logging.error(f"Erreur lors de l'extraction d'informations: {str(e)}")
+            return {}
 
     def is_collection_complete(self, collected_info: dict) -> bool:
         """Vérifie si toutes les informations requises ont été collectées"""
@@ -396,71 +398,48 @@ class ChatBot:
                     'should_proceed': False
                 }
     
+            # Extraction et sauvegarde des informations du message
+            extracted_info = await self.extract_info_from_message(user_message, current_field)
+            await self.save_conversation_message(
+                conversation_id, 
+                user_message, 
+                'user',
+                extracted_info
+            )
+    
             # Validation de la réponse
             is_valid, validated_value, error_msg = self.info_collector.validate_response(
                 current_field, user_message, collected_info
             )
     
             if is_valid:
-                # Mettre à jour les informations collectées
+                # Mise à jour des informations collectées
                 self.conv_storage.update_info(conversation_id, {current_field: validated_value})
-                self.update_database(conversation_id, {current_field: validated_value})
+                await self.update_database(conversation_id, {current_field: validated_value})
                 
-                # Mise à jour du contexte pour la prochaine question
+                # Mise à jour du contexte
                 updated_info = collected_info.copy()
                 updated_info[current_field] = validated_value
                 
+                # Mise à jour du score si un lead_id existe
+                conversation = self.conv_storage.get_conversation(conversation_id)
+                if conversation.get('lead_id'):
+                    await self.update_lead_score(conversation['lead_id'])
+                    await self.check_need_followup(conversation['lead_id'])
+    
                 # Déterminer la prochaine question
                 next_field = self.info_collector.get_current_field(updated_info)
                 if next_field:
                     next_question = self.info_collector.get_field_question(next_field, updated_info)
                 else:
-                    next_question = None
-    
-            # Générer une réponse contextuelle avec GPT
-            system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
-            
-            CONTEXTE:
-            - Question initiale du client: {collected_info.get('initial_query', '')}
-            - Prénom: {collected_info.get('first_name', '')}
-            - Champ actuel: {current_field}
-            - Dernière réponse valide: {is_valid}
-            - Prochaine question: {next_question if 'next_question' in locals() else ''}
-            
-            RÈGLES:
-            1. Si la réponse est valide:
-               - Faire un bref retour positif sans répéter la réponse entière
-               - Poser directement la question suivante de manière naturelle
-               - Ne pas répéter les formules de politesse à chaque fois
-               - Éviter "Merci pour votre réponse" et "C'est noté"
-            2. Si la réponse est invalide:
-               - Expliquer clairement pourquoi la réponse ne convient pas
-               - Ne pas s'excuser
-               - Donner un exemple de réponse valide
-            3. Jamais plus d'une question à la fois
-            4. Éviter les répétitions de formules"""
-    
-            user_prompt = f"""Message du client: '{user_message}'
-            Réponse valide: {is_valid}
-            Erreur si invalide: {error_msg}
-            Type de réponse attendu: {field_info.get('type')}
-            Options si choix: {json.dumps(field_info.get('options', []), ensure_ascii=False)}"""
-    
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.7
-            )
-            
-            gpt_response = response.choices[0].message.content
-    
-            if is_valid:
-                # Vérifier si toutes les informations sont collectées
-                if self.info_collector.is_collection_complete(updated_info):
-                    final_analysis = await self.generate_final_analysis(updated_info)
+                    # Générer l'analyse finale si toutes les informations sont collectées
+                    final_analysis = await self.generate_final_analysis(updated_info, conversation_id)
+                    await self.save_conversation_message(
+                        conversation_id,
+                        final_analysis,
+                        'bot',
+                        {'type': 'final_analysis'}
+                    )
                     return {
                         'type': 'text',
                         'content': final_analysis,
@@ -469,17 +448,47 @@ class ChatBot:
                         'should_proceed': True
                     }
     
+                # Générer la réponse avec GPT
+                response = await self.generate_gpt_response(
+                    user_message,
+                    updated_info,
+                    is_valid,
+                    next_question if 'next_question' in locals() else None
+                )
+    
+                await self.save_conversation_message(
+                    conversation_id,
+                    response,
+                    'bot',
+                    {'next_field': next_field}
+                )
+    
                 return {
                     'type': 'text',
-                    'content': gpt_response,
+                    'content': response,
                     'options': self.info_collector.get_field_options(next_field) if next_field else [],
                     'valid': True,
                     'should_proceed': True
                 }
             else:
+                # Générer une réponse pour une validation échouée
+                error_response = await self.generate_error_response(
+                    user_message,
+                    field_info,
+                    error_msg,
+                    collected_info
+                )
+    
+                await self.save_conversation_message(
+                    conversation_id,
+                    error_response,
+                    'bot',
+                    {'error': error_msg}
+                )
+    
                 return {
                     'type': 'text',
-                    'content': gpt_response,
+                    'content': error_response,
                     'options': field_info.get('options', []),
                     'valid': False,
                     'should_proceed': False
@@ -542,19 +551,80 @@ class ChatBot:
             }
     
     # Ajout d'une méthode pour sauvegarder les messages
-    async def save_conversation_message(self, conversation_id: str, content: str, message_type: str):
+    async def save_conversation_message(self, conversation_id: str, content: str, message_type: str, extracted_info: dict = None):
+        """
+        Sauvegarde un message dans la base de données avec les informations extraites
+        """
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
-            if conversation.get('lead_id'):
-                await self.supabase.table('messages').insert({
+            
+            # Si pas de conversation_id dans Supabase, la créer
+            conv_record = await self.supabase.table('conversations')\
+                .select('id')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+                
+            if not conv_record.data:
+                # Créer la conversation si elle n'existe pas
+                conv_insert = await self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
-                    'content': content,
-                    'message_type': message_type,
+                    'status': 'en_cours',
+                    'lead_id': conversation.get('lead_id'),
                     'created_at': datetime.utcnow().isoformat()
                 }).execute()
-        except Exception as e:
-            print(f"Error saving message: {str(e)}")
+                conv_db_id = conv_insert.data[0]['id']
+            else:
+                conv_db_id = conv_record.data[0]['id']
     
+            # Préparer les métadonnées du message
+            metadata = {
+                'timestamp': datetime.utcnow().isoformat(),
+                'type': message_type,
+                'conversation_stage': self.get_conversation_stage(conversation)
+            }
+    
+            # Créer l'entrée du message
+            message_data = {
+                'conversation_id': conv_db_id,
+                'content': content,
+                'message_type': message_type,
+                'metadata': metadata,
+                'extracted_info': extracted_info or {},
+                'created_at': datetime.utcnow().isoformat()
+            }
+    
+            await self.supabase.table('messages').insert(message_data).execute()
+    
+        except Exception as e:
+            logging.error(f"Erreur lors de la sauvegarde du message: {str(e)}")
+            raise
+
+    def get_conversation_stage(self, conversation: dict) -> str:
+        """
+        Détermine l'étape actuelle de la conversation
+        """
+        collected_info = conversation.get('info_collected', {})
+        
+        if not collected_info:
+            return 'début'
+            
+        if not collected_info.get('first_name'):
+            return 'identification'
+            
+        if not collected_info.get('email') or not collected_info.get('phone'):
+            return 'contact'
+            
+        if not collected_info.get('profession') or not collected_info.get('income'):
+            return 'situation_professionnelle'
+            
+        if not collected_info.get('patrimoine'):
+            return 'situation_patrimoniale'
+            
+        if not collected_info.get('objectifs'):
+            return 'objectifs'
+            
+        return 'conclusion'
+
     async def update_database(self, conversation_id: str, info: dict):
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
@@ -718,6 +788,116 @@ class ChatBot:
         except Exception as e:
             logging.error(f"Erreur lors de l'extraction des recommandations: {str(e)}")
             return []
+
+    async def update_lead_score(self, lead_id: str) -> None:
+        """
+        Met à jour le score du lead en fonction des informations collectées
+        """
+        try:
+            # Récupérer toutes les informations du lead
+            lead_data = await self.supabase.table('leads')\
+                .select('*')\
+                .eq('id', lead_id)\
+                .single()\
+                .execute()
+    
+            patrimoine_data = await self.supabase.table('patrimoine_info')\
+                .select('*')\
+                .eq('lead_id', lead_id)\
+                .single()\
+                .execute()
+    
+            # Calcul du score de base
+            base_score = 0
+            
+            # Score pour les informations de contact
+            if lead_data.data:
+                if lead_data.data.get('email'):
+                    base_score += 20
+                if lead_data.data.get('phone'):
+                    base_score += 15
+                if lead_data.data.get('first_name') and lead_data.data.get('last_name'):
+                    base_score += 15
+                elif lead_data.data.get('first_name') or lead_data.data.get('last_name'):
+                    base_score += 10
+    
+            # Score pour les informations patrimoniales
+            if patrimoine_data.data:
+                # Score basé sur le patrimoine
+                patrimoine_total = patrimoine_data.data.get('patrimoine_total', 0)
+                if patrimoine_total > 1000000:
+                    base_score += 50
+                elif patrimoine_total > 500000:
+                    base_score += 30
+                elif patrimoine_total > 100000:
+                    base_score += 20
+                elif patrimoine_total > 0:
+                    base_score += 10
+    
+                # Score basé sur les revenus
+                revenus = patrimoine_data.data.get('revenus_annuels', 0)
+                if revenus > 100000:
+                    base_score += 30
+                elif revenus > 50000:
+                    base_score += 20
+                elif revenus > 30000:
+                    base_score += 10
+    
+                # Score basé sur les objectifs définis
+                objectifs = patrimoine_data.data.get('objectifs', [])
+                if objectifs:
+                    base_score += len(objectifs) * 5
+    
+                # Score basé sur l'âge (segment privilégié)
+                age = patrimoine_data.data.get('age', 0)
+                if 35 <= age <= 65:
+                    base_score += 15
+    
+                # Score basé sur la profession
+                professions_privilegiees = [
+                    "Chef d'entreprise",
+                    "Profession libérale",
+                    "Cadre supérieur"
+                ]
+                if patrimoine_data.data.get('profession') in professions_privilegiees:
+                    base_score += 20
+    
+            # Mise à jour du score dans la base de données
+            await self.supabase.table('leads')\
+                .update({'score': base_score, 'updated_at': datetime.utcnow().isoformat()})\
+                .eq('id', lead_id)\
+                .execute()
+    
+        except Exception as e:
+            logging.error(f"Erreur lors de la mise à jour du score: {str(e)}")
+            raise
+    
+    async def check_need_followup(self, lead_id: str) -> bool:
+        """
+        Détermine si un suivi est nécessaire en fonction du score et des informations
+        """
+        try:
+            lead_data = await self.supabase.table('leads')\
+                .select('score')\
+                .eq('id', lead_id)\
+                .single()\
+                .execute()
+                
+            if lead_data.data and lead_data.data.get('score', 0) >= 70:
+                await self.supabase.table('conversations')\
+                    .update({
+                        'needs_followup': True,
+                        'updated_at': datetime.utcnow().isoformat()
+                    })\
+                    .eq('lead_id', lead_id)\
+                    .execute()
+                return True
+                
+            return False
+    
+        except Exception as e:
+            logging.error(f"Erreur lors de la vérification du besoin de suivi: {str(e)}")
+            return False
 
     async def generate_final_analysis(self, collected_info: dict, conversation_id: str) -> str:
         """Génère l'analyse finale et les recommandations"""
