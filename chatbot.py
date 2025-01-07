@@ -562,45 +562,47 @@ class ChatBot:
             
             # Vérifier si une conversation existe déjà
             if not lead_id:
-                existing_conversation = self.supabase.table('conversations').select('lead_id').eq('conversation_id', conversation_id).execute()
+                # Rechercher la conversation par conversation_id
+                existing_conversation = await self.supabase.table('conversations').select('lead_id').eq('conversation_id', conversation_id).execute()
                 if existing_conversation.data:
                     lead_id = existing_conversation.data[0]['lead_id']
                     conversation['lead_id'] = lead_id
-                    return
-        
-                # Vérifier si l'email existe déjà
+            
+            # Création ou mise à jour du lead
+            if not lead_id and ('email' in info or 'phone' in info):
+                # Rechercher un lead existant par email ou téléphone
+                existing_lead = None
                 if 'email' in info:
-                    existing_lead = self.supabase.table('leads').select('id').eq('email', info['email']).execute()
-                    if existing_lead.data:
-                        lead_id = existing_lead.data[0]['id']
-                        conversation['lead_id'] = lead_id
-                        return
-        
-                lead_data = {
-                    "status": "nouveau",
-                    "source": "chatbot",
-                    "created_at": datetime.utcnow().isoformat(),
-                    **{k: info[k] for k in ['first_name', 'last_name', 'email', 'phone'] if k in info}
-                }
-        
-                # Créer ou mettre à jour le lead
-                if lead_id:
-                    self.supabase.table('leads').update(lead_data).eq('id', lead_id).execute()
+                    existing_lead = await self.supabase.table('leads').select('id').eq('email', info['email']).execute()
+                if not existing_lead and 'phone' in info:
+                    existing_lead = await self.supabase.table('leads').select('id').eq('phone', info['phone']).execute()
+                
+                if existing_lead and existing_lead.data:
+                    lead_id = existing_lead.data[0]['id']
+                    conversation['lead_id'] = lead_id
                 else:
-                    lead_response = self.supabase.table('leads').insert(lead_data).execute()
+                    # Créer un nouveau lead
+                    lead_data = {
+                        "status": "nouveau",
+                        "source": "chatbot",
+                        "created_at": datetime.utcnow().isoformat(),
+                        **{k: info[k] for k in ['first_name', 'last_name', 'email', 'phone'] if k in info}
+                    }
+                    lead_response = await self.supabase.table('leads').insert(lead_data).execute()
                     lead_id = lead_response.data[0]['id']
                     conversation['lead_id'] = lead_id
-                    
-                    # Créer la conversation
-                    self.supabase.table('conversations').upsert({
+    
+                    # Créer la conversation associée
+                    await self.supabase.table('conversations').insert({
                         "lead_id": lead_id,
                         "conversation_id": conversation_id,
-                        "status": "en_cours"
+                        "status": "en_cours",
+                        "created_at": datetime.utcnow().isoformat()
                     }).execute()
-            
-            # Mettre à jour les informations patrimoniales
+    
+            # Si nous avons un lead_id, mettre à jour les informations patrimoniales
             if lead_id:
-                # Conversion des valeurs textuelles en valeurs numériques
+                # Conversion des valeurs pour la table patrimoine_info
                 conversions = {
                     'income': {
                         "Moins de 30 000€": 25000,
@@ -615,61 +617,133 @@ class ChatBot:
                         "Plus de 500 000€": 750000
                     }
                 }
-                
-                patrimoine_fields = {
+    
+                # Préparation des données patrimoniales
+                patrimoine_data = {
+                    "lead_id": lead_id,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+    
+                # Mapping des champs
+                field_mappings = {
                     'age': ('age', int),
                     'profession': ('profession', str),
+                    'situation_familiale': ('situation_familiale', str),
                     'income': ('revenus_annuels', lambda x: conversions['income'].get(x, 0)),
-                    'patrimoine': ('patrimoine_total', lambda x: conversions['patrimoine'].get(x, 0))
+                    'patrimoine': ('patrimoine_total', lambda x: conversions['patrimoine'].get(x, 0)),
+                    'objectifs': ('objectifs', lambda x: x.split(',') if isinstance(x, str) else [x])
                 }
-                
-                patrimoine_data = {"lead_id": lead_id}
-                for key, (db_field, converter) in patrimoine_fields.items():
-                    if key in info:
+    
+                # Construction des données patrimoniales
+                for source_field, (target_field, converter) in field_mappings.items():
+                    if source_field in info:
                         try:
-                            converted_value = converter(info[key])
-                            if converted_value is not None:  # Ajouter uniquement les valeurs non nulles
-                                patrimoine_data[db_field] = converted_value
+                            value = info[source_field]
+                            converted_value = converter(value)
+                            if converted_value is not None:
+                                patrimoine_data[target_field] = converted_value
                         except (ValueError, TypeError) as e:
-                            logging.error(f"Erreur de conversion pour {key}: {e}")
-                
-                # Ne mettre à jour que si nous avons des données valides
-                if len(patrimoine_data) > 1:  # Plus que juste lead_id
-                    logging.info(f"Mise à jour patrimoine_info avec: {patrimoine_data}")
-                    self.supabase.table('patrimoine_info').upsert(  # Suppression du await
-                        {
-                            **patrimoine_data,
-                            "updated_at": datetime.utcnow().isoformat()
-                        }
-                    ).execute()
+                            logging.error(f"Erreur de conversion pour {source_field}: {e}")
+    
+                # Mise à jour des informations patrimoniales si nous avons des données
+                if len(patrimoine_data) > 2:  # Plus que juste lead_id et updated_at
+                    await self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
+    
+                # Mise à jour du lead si nécessaire
+                lead_update_data = {
+                    k: info[k]
+                    for k in ['first_name', 'last_name', 'email', 'phone']
+                    if k in info and info[k]
+                }
+                if lead_update_data:
+                    lead_update_data['updated_at'] = datetime.utcnow().isoformat()
+                    await self.supabase.table('leads').update(lead_update_data).eq('id', lead_id).execute()
     
         except Exception as e:
             logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
             raise
 
-    async def generate_final_analysis(self, collected_info: dict) -> str:
+    async def save_recommendations(self, conversation_id: str, collected_info: dict, recommendations: List[str]):
+        """Sauvegarde les préconisations générées dans la base de données"""
+        try:
+            conversation = self.conv_storage.get_conversation(conversation_id)
+            lead_id = conversation.get('lead_id')
+            
+            if not lead_id:
+                return
+                
+            # Créer une entrée pour chaque préconisation
+            for idx, recommendation in enumerate(recommendations, 1):
+                preconisation_data = {
+                    "lead_id": lead_id,
+                    "conversation_id": conversation_id,
+                    "contenu": recommendation,
+                    "priorite": idx,
+                    "type_preconisation": "chatbot",
+                    "statut": "générée",
+                    "created_at": datetime.utcnow().isoformat()
+                }
+                
+                await self.supabase.table('preconisations').insert(preconisation_data).execute()
+                
+        except Exception as e:
+            logging.error(f"Erreur lors de la sauvegarde des préconisations: {str(e)}")
+            raise
+    
+    async def extract_recommendations(self, gpt_response: str) -> List[str]:
+        """Extrait les recommandations d'une réponse GPT"""
+        try:
+            system_prompt = """Extrais les recommandations principales de cette réponse.
+            Format attendu : Une liste de recommandations claires et concises."""
+            
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": gpt_response}
+                ],
+                temperature=0.3
+            )
+            
+            # Traiter la réponse pour extraire les recommandations
+            recommendations_text = response.choices[0].message.content
+            recommendations = [
+                rec.strip() 
+                for rec in recommendations_text.split('\n') 
+                if rec.strip() and not rec.strip().startswith(('•', '-', '*', '1.', '2.', '3.'))
+            ]
+            
+            return recommendations
+            
+        except Exception as e:
+            logging.error(f"Erreur lors de l'extraction des recommandations: {str(e)}")
+            return []
+
+    async def generate_final_analysis(self, collected_info: dict, conversation_id: str) -> str:
         """Génère l'analyse finale et les recommandations"""
         
         prompt = f"""En tant que conseillère en gestion de patrimoine, fais une analyse personnalisée:
-
+    
         PROFIL CLIENT:
         {json.dumps(collected_info, indent=2)}
-
+    
         STRUCTURE DE LA RÉPONSE:
         1. Remerciement personnalisé avec le prénom
         2. Bref résumé de la situation patrimoniale
         3. Réponse précise à la question initiale: {collected_info.get('initial_query')}
         4. 2-3 recommandations personnalisées
         5. Proposition de rendez-vous pour approfondir
-
+    
         CONSIGNES:
         - Sois précise et professionnelle
         - Montre que tu as bien compris leurs enjeux
         - Donne des conseils concrets mais garde des éléments pour le RDV
+        - Présente les recommandations de manière claire et structurée
         - Termine par une incitation à l'action claire"""
-
+    
         try:
-            response = self.client.chat.completions.create(
+            # Générer l'analyse avec GPT
+            response = await self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "Tu es Emma, conseillère patrimoniale expérimentée."},
@@ -677,9 +751,24 @@ class ChatBot:
                 ],
                 temperature=0.7
             )
-
-            return response.choices[0].message.content
-
+    
+            gpt_response = response.choices[0].message.content
+    
+            # Extraire et sauvegarder les recommandations
+            recommendations = await self.extract_recommendations(gpt_response)
+            if recommendations:
+                await self.save_recommendations(conversation_id, collected_info, recommendations)
+    
+            # Mettre à jour le statut de la conversation
+            conversation = self.conv_storage.get_conversation(conversation_id)
+            if conversation.get('lead_id'):
+                await self.supabase.table('conversations').update({
+                    'status': 'terminée',
+                    'updated_at': datetime.utcnow().isoformat()
+                }).eq('conversation_id', conversation_id).execute()
+    
+            return gpt_response
+    
         except Exception as e:
             logging.error(f"Erreur dans generate_final_analysis: {str(e)}")
             return "Je suis désolée, je ne peux pas générer l'analyse complète pour le moment. Un conseiller va vous recontacter rapidement."
