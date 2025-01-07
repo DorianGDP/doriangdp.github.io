@@ -1003,17 +1003,21 @@ class ChatBot:
     
             # Première interaction
             if not collected_info.get('initial_query'):
-                # Sauvegarder la question initiale en mémoire et dans la base de données
+                # Sauvegarder la question initiale en mémoire
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
                 
-                # Sauvegarder dans Supabase
-                self.supabase.table('conversations')\
-                    .update({
-                        'initial_query': question,
-                        'updated_at': datetime.utcnow().isoformat()
-                    })\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
+                try:
+                    # Tenter de sauvegarder dans Supabase
+                    await self.supabase.table('conversations')\
+                        .upsert({
+                            'conversation_id': conversation_id,
+                            'initial_query': question,
+                            'updated_at': datetime.utcnow().isoformat()
+                        })\
+                        .execute()
+                except Exception as e:
+                    # Logger l'erreur mais continuer l'exécution
+                    logging.warning(f"Impossible de sauvegarder initial_query: {str(e)}")
                 
                 # Générer une réponse personnalisée pour la première interaction
                 system_prompt = """Tu es Emma, conseillère en gestion de patrimoine. 
