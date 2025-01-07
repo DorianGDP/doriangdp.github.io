@@ -695,14 +695,14 @@ class ChatBot:
         """Sauvegarde un message dans la conversation"""
         try:
             # Récupérer la conversation existante
-            conv_record = self.supabase.table('conversations')\
+            response = self.supabase.table('conversations')\
                 .select('messages, id')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-    
-            if not conv_record.data:
-                # Créer une nouvelle conversation si elle n'existe pas
-                conv_insert = self.supabase.table('conversations').insert({
+
+            if not response.data:
+                # Créer une nouvelle conversation
+                response = self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
                     'messages': [{
                         'type': message_type,
@@ -720,7 +720,7 @@ class ChatBot:
                 return
 
             # Mettre à jour les messages existants
-            existing_messages = conv_record.data[0]['messages']
+            existing_messages = response.data[0]['messages']
             new_message = {
                 'type': message_type,
                 'content': content,
@@ -730,14 +730,15 @@ class ChatBot:
             updated_messages = existing_messages + [new_message]
 
             # Mettre à jour la conversation
-            self.supabase.table('conversations')\
+            response = self.supabase.table('conversations')\
                 .update({'messages': updated_messages})\
-                .eq('id', conv_record.data[0]['id'])\
+                .eq('id', response.data[0]['id'])\
                 .execute()
 
         except Exception as e:
             logging.error(f"Erreur lors de la sauvegarde du message: {str(e)}")
             raise
+
 
     def get_conversation_stage(self, conversation: dict) -> str:
         """
@@ -1092,72 +1093,59 @@ class ChatBot:
     async def initialize_session(self, conversation_id: str) -> str:
         """Initialise ou récupère une session de conversation"""
         try:
-            # Vérifier si la conversation existe dans la base de données
-            conv_data = await self.supabase.table('conversations')\
+            # Vérifier si la conversation existe
+            response = self.supabase.table('conversations')\
                 .select('conversation_id, status')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
 
-            if not conv_data.data:
-                # Si la conversation n'existe pas, en créer une nouvelle
+            if not response.data:
+                # Créer une nouvelle conversation
                 new_id = self.generate_unique_id()
-                await self.supabase.table('conversations').insert({
+                response = self.supabase.table('conversations').insert({
                     'conversation_id': new_id,
                     'status': 'en_cours',
                     'created_at': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat()
                 }).execute()
-                self.conv_storage.reset_conversation(new_id)
-                return new_id
-            else:
-                # Si la conversation existe mais est terminée, en créer une nouvelle
-                if conv_data.data[0]['status'] == 'terminée':
-                    new_id = self.generate_unique_id()
-                    await self.supabase.table('conversations').insert({
-                        'conversation_id': new_id,
-                        'status': 'en_cours',
-                        'created_at': datetime.utcnow().isoformat(),
-                        'updated_at': datetime.utcnow().isoformat()
-                    }).execute()
-                    self.conv_storage.reset_conversation(new_id)
-                    return new_id
                 
-                # Sinon, synchroniser la conversation existante
-                await self.conv_storage.sync_with_database(conversation_id, self.supabase)
-                return conversation_id
+                if hasattr(response, 'error') and response.error:
+                    raise Exception(response.error)
+                    
+                return new_id
+
+            return conversation_id
 
         except Exception as e:
             logging.error(f"Erreur lors de l'initialisation de la session: {str(e)}")
-            new_id = self.generate_unique_id()
-            self.conv_storage.reset_conversation(new_id)
-            return new_id
+            return self.generate_unique_id()
 
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
-            # Initialiser ou récupérer la session
-            conversation_id = await self.initialize_session(conversation_id)
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
-    
+
             # Première interaction
             if not collected_info.get('initial_query'):
                 # Sauvegarder la question initiale en mémoire
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
                 
                 try:
-                    # Tenter de sauvegarder dans Supabase
-                    await self.supabase.table('conversations')\
+                    # Sauvegarder dans Supabase - Correction de la syntaxe
+                    response = self.supabase.table('conversations')\
                         .upsert({
                             'conversation_id': conversation_id,
                             'initial_query': question,
                             'updated_at': datetime.utcnow().isoformat()
-                        })\
-                        .execute()
+                        }).execute()
+                    
+                    # Vérifier la réponse
+                    if hasattr(response, 'error') and response.error:
+                        raise Exception(response.error)
+                        
                 except Exception as e:
-                    # Logger l'erreur mais continuer l'exécution
                     logging.warning(f"Impossible de sauvegarder initial_query: {str(e)}")
                 
-                # Générer une réponse personnalisée pour la première interaction
                 system_prompt = """Tu es Emma, conseillère en gestion de patrimoine. 
                 
                 TÂCHE:
@@ -1196,11 +1184,11 @@ class ChatBot:
                         'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux vous accompagner dans votre projet, j'aimerais d'abord faire votre connaissance. Quel est votre prénom ?",
                         'options': []
                     }
-    
+
             # Pour les interactions suivantes
             current_field = self.info_collector.get_current_field(collected_info)
             return await self.process_response(question, conversation_id, collected_info, current_field)
-    
+
         except Exception as e:
             logging.error(f"Erreur dans repondre_question: {str(e)}")
             return {
