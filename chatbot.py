@@ -413,7 +413,8 @@ class ChatBot:
             Type de donnée attendue: {field_info.get('type')}
             Options si choix: {json.dumps(field_info.get('options', []), ensure_ascii=False)}"""
     
-            response = await self.client.chat.completions.create(
+            # Correction de l'appel à l'API OpenAI
+            response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -421,7 +422,7 @@ class ChatBot:
                 ],
                 temperature=0.7
             )
-    
+            # Attendre la réponse de manière synchrone
             gpt_response = response.choices[0].message.content
     
             if is_valid:
