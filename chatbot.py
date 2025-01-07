@@ -275,7 +275,8 @@ class InfoCollector:
             values = [v.strip() for v in value.split(',')]
             valid_values = [v for v in values if v in field_info['options']]
             if valid_values:
-                return True, valid_values, None
+                return True, ','.join(valid_values), None # Ajout du join
+            return False, None, field_info['error_message'] # Ajout du cas d'erreur
 
         # Validation par regex si définie
         if 'regex' in field_info['validation_rules']:
@@ -371,16 +372,25 @@ class ChatBot:
             - Question initiale du client: {collected_info.get('initial_query', '')}
             - Prénom connu: {collected_info.get('first_name', '')}
             - Champ actuel: {current_field}
-            - Progression: {completion}%
             
             DIRECTIVES:
             1. Sois naturelle et empathique dans tes réponses
             2. Si la réponse est valide, fais un bref retour positif avant de passer à la suite
-            3. Si la réponse est invalide, explique poliment pourquoi
+            3. Si la réponse est invalide, explique poliment pourquoi et redemande l'information
             4. Adapte ton langage selon le profil (plus formel si patrimoine élevé)
             5. N'utilise jamais "enchantée" après le premier message
             6. Ne pose qu'une seule question à la fois
-            7. Si la progression est > 75%, encourage le client en mentionnant qu'il ne reste que quelques informations"""
+            
+            INFORMATIONS COLLECTÉES:
+            {json.dumps(collected_info, indent=2)}
+            
+            RÉPONSE ATTENDUE:
+            {{
+                "is_valid": bool,  # La réponse est-elle valide ?
+                "extracted_value": str,  # Valeur extraite de la réponse
+                "next_message": str,  # Message à envoyer à l'utilisateur
+                "should_proceed": bool  # Faut-il passer à la question suivante ?
+            }}"""
     
             field_info = self.info_collector.get_field_info(current_field)
             if field_info:
