@@ -468,7 +468,12 @@ class ChatBot:
                     'should_proceed': False
                 }
     
-            # Extraction et sauvegarde des informations du message
+            # Validation de la réponse
+            is_valid, validated_value, error_msg = self.info_collector.validate_response(
+                current_field, user_message, collected_info
+            )
+    
+            # Extraction et sauvegarde du message
             extracted_info = await self.extract_info_from_message(user_message, current_field)
             await self.save_conversation_message(
                 conversation_id, 
@@ -477,32 +482,20 @@ class ChatBot:
                 extracted_info
             )
     
-            # Validation de la réponse
-            is_valid, validated_value, error_msg = self.info_collector.validate_response(
-                current_field, user_message, collected_info
-            )
-    
             if is_valid:
-                # Mise à jour des informations collectées
+                # Mise à jour des informations
                 self.conv_storage.update_info(conversation_id, {current_field: validated_value})
                 await self.update_database(conversation_id, {current_field: validated_value})
+                
+                # Mise à jour du score
+                await self.update_lead_score(conversation_id)
                 
                 # Mise à jour du contexte
                 updated_info = collected_info.copy()
                 updated_info[current_field] = validated_value
-                
-                # Mise à jour du score si un lead_id existe
-                conversation = self.conv_storage.get_conversation(conversation_id)
-                if conversation.get('lead_id'):
-                    await self.update_lead_score(conversation['lead_id'])
-                    await self.check_need_followup(conversation['lead_id'])
     
-                # Déterminer la prochaine question
-                next_field = self.info_collector.get_current_field(updated_info)
-                if next_field:
-                    next_question = self.info_collector.get_field_question(next_field, updated_info)
-                else:
-                    # Générer l'analyse finale si toutes les informations sont collectées
+                # Vérifier si toutes les informations sont collectées
+                if self.info_collector.is_collection_complete(updated_info):
                     final_analysis = await self.generate_final_analysis(updated_info, conversation_id)
                     await self.save_conversation_message(
                         conversation_id,
@@ -518,51 +511,54 @@ class ChatBot:
                         'should_proceed': True
                     }
     
-                # Générer la réponse avec GPT
-                response = await self.generate_gpt_response(
-                    user_message,
-                    updated_info,
-                    is_valid,
-                    next_question if 'next_question' in locals() else None
-                )
+                # Sinon, continuer avec la prochaine question
+                next_field = self.info_collector.get_current_field(updated_info)
+                if next_field:
+                    next_question = self.info_collector.get_field_question(next_field, updated_info)
+                    response = await self.generate_gpt_response(
+                        user_message,
+                        updated_info,
+                        is_valid,
+                        next_question
+                    )
     
-                await self.save_conversation_message(
-                    conversation_id,
-                    response,
-                    'bot',
-                    {'next_field': next_field}
-                )
+                    await self.save_conversation_message(
+                        conversation_id,
+                        response,
+                        'bot',
+                        {'next_field': next_field}
+                    )
     
-                return {
-                    'type': 'text',
-                    'content': response,
-                    'options': self.info_collector.get_field_options(next_field) if next_field else [],
-                    'valid': True,
-                    'should_proceed': True
-                }
-            else:
-                # Générer une réponse pour une validation échouée
-                error_response = await self.generate_error_response(
-                    user_message,
-                    field_info,
-                    error_msg,
-                    collected_info
-                )
+                    return {
+                        'type': 'text',
+                        'content': response,
+                        'options': self.info_collector.get_field_options(next_field),
+                        'valid': True,
+                        'should_proceed': True
+                    }
     
-                await self.save_conversation_message(
-                    conversation_id,
-                    error_response,
-                    'bot',
-                    {'error': error_msg}
-                )
+            # Gestion des réponses invalides
+            error_response = await self.generate_error_response(
+                user_message,
+                field_info,
+                error_msg,
+                collected_info
+            )
     
-                return {
-                    'type': 'text',
-                    'content': error_response,
-                    'options': field_info.get('options', []),
-                    'valid': False,
-                    'should_proceed': False
-                }
+            await self.save_conversation_message(
+                conversation_id,
+                error_response,
+                'bot',
+                {'error': error_msg}
+            )
+    
+            return {
+                'type': 'text',
+                'content': error_response,
+                'options': field_info.get('options', []),
+                'valid': False,
+                'should_proceed': False
+            }
     
         except Exception as e:
             logging.error(f"Erreur dans process_response: {str(e)}")
@@ -649,67 +645,45 @@ class ChatBot:
     
     # Ajout d'une méthode pour sauvegarder les messages
     async def save_conversation_message(self, conversation_id: str, content: str, message_type: str, extracted_info: dict = None):
-        """
-        Sauvegarde un message dans la base de données avec les informations extraites
-        """
+        """Sauvegarde un message dans la conversation"""
         try:
-            conversation = self.conv_storage.get_conversation(conversation_id)
-            
-            # Si pas de conversation_id dans Supabase, vérifier/créer
-            try:
-                conv_record = self.supabase.table('conversations')\
-                    .select('id')\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
-                    
-                if not conv_record.data:
-                    # Vérifier si on doit générer un nouvel ID
-                    actual_conv_id = await self.get_or_create_conversation(conversation_id)
-                    if actual_conv_id != conversation_id:
-                        conversation_id = actual_conv_id
-                        # Mettre à jour l'ID dans le stockage local
-                        self.conv_storage._conversations[actual_conv_id] = self.conv_storage._conversations.pop(conversation_id, {})
-                    
-                    # Créer la conversation avec le nouvel ID
-                    conv_insert = self.supabase.table('conversations').insert({
-                        'conversation_id': actual_conv_id,
-                        'status': 'en_cours',
-                        'lead_id': conversation.get('lead_id'),
-                        'created_at': datetime.utcnow().isoformat()
-                    }).execute()
-                    conv_db_id = conv_insert.data[0]['id']
-                else:
-                    conv_db_id = conv_record.data[0]['id']
-    
-            except Exception as e:
-                if 'duplicate key value' not in str(e):
-                    raise
-                # Si erreur de doublon, récupérer l'enregistrement existant
-                conv_record = self.supabase.table('conversations')\
-                    .select('id')\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
-                conv_db_id = conv_record.data[0]['id']
-    
-            # Préparer les métadonnées du message
-            metadata = {
-                'timestamp': datetime.utcnow().isoformat(),
+            # Récupérer la conversation existante
+            conv_record = self.supabase.table('conversations')\
+                .select('messages, id')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+
+            if not conv_record.data:
+                # Créer une nouvelle conversation si elle n'existe pas
+                conv_insert = self.supabase.table('conversations').insert({
+                    'conversation_id': conversation_id,
+                    'messages': [
+                        {
+                            'type': message_type,
+                            'content': content,
+                            'timestamp': datetime.utcnow().isoformat(),
+                            'metadata': extracted_info or {}
+                        }
+                    ]
+                }).execute()
+                return
+
+            # Mettre à jour les messages existants
+            existing_messages = conv_record.data[0]['messages']
+            new_message = {
                 'type': message_type,
-                'conversation_stage': self.get_conversation_stage(conversation)
-            }
-    
-            # Créer l'entrée du message
-            message_data = {
-                'conversation_id': conv_db_id,
                 'content': content,
-                'message_type': message_type,
-                'metadata': metadata,
-                'extracted_info': extracted_info or {},
-                'created_at': datetime.utcnow().isoformat()
+                'timestamp': datetime.utcnow().isoformat(),
+                'metadata': extracted_info or {}
             }
-    
-            self.supabase.table('messages').insert(message_data).execute()
-    
+            updated_messages = existing_messages + [new_message]
+
+            # Mettre à jour la conversation
+            self.supabase.table('conversations')\
+                .update({'messages': updated_messages})\
+                .eq('id', conv_record.data[0]['id'])\
+                .execute()
+
         except Exception as e:
             logging.error(f"Erreur lors de la sauvegarde du message: {str(e)}")
             raise
@@ -741,136 +715,90 @@ class ChatBot:
         return 'conclusion'
 
     async def update_database(self, conversation_id: str, info: dict):
+        """Met à jour les informations de la conversation dans la base de données"""
         try:
-            conversation = self.conv_storage.get_conversation(conversation_id)
-            lead_id = conversation.get('lead_id')
+            # Préparer les données à mettre à jour
+            update_data = {}
             
-            # Vérifier si une conversation existe déjà
-            if not lead_id:
-                # Rechercher la conversation par conversation_id
-                existing_conversation = self.supabase.table('conversations').select('lead_id').eq('conversation_id', conversation_id).execute()
-                if existing_conversation.data:
-                    lead_id = existing_conversation.data[0]['lead_id']
-                    conversation['lead_id'] = lead_id
-            
-            # Création ou mise à jour du lead
-            if not lead_id and ('email' in info or 'phone' in info):
-                # Rechercher un lead existant par email ou téléphone
-                existing_lead = None
-                if 'email' in info:
-                    existing_lead = self.supabase.table('leads').select('id').eq('email', info['email']).execute()
-                if not existing_lead and 'phone' in info:
-                    existing_lead = self.supabase.table('leads').select('id').eq('phone', info['phone']).execute()
-                
-                if existing_lead and existing_lead.data:
-                    lead_id = existing_lead.data[0]['id']
-                    conversation['lead_id'] = lead_id
-                else:
-                    # Créer un nouveau lead
-                    lead_data = {
-                        "status": "nouveau",
-                        "source": "chatbot",
-                        "created_at": datetime.utcnow().isoformat(),
-                        **{k: info[k] for k in ['first_name', 'last_name', 'email', 'phone'] if k in info}
-                    }
-                    lead_response = self.supabase.table('leads').insert(lead_data).execute()
-                    lead_id = lead_response.data[0]['id']
-                    conversation['lead_id'] = lead_id
-    
-                    # Créer la conversation associée
-                    self.supabase.table('conversations').insert({
-                        "lead_id": lead_id,
-                        "conversation_id": conversation_id,
-                        "status": "en_cours",
-                        "created_at": datetime.utcnow().isoformat()
-                    }).execute()
-    
-            # Si nous avons un lead_id, mettre à jour les informations patrimoniales
-            if lead_id:
-                # Conversion des valeurs
-                conversions = {
-                    'income': {
-                        "Moins de 30 000€": 25000,
-                        "30 000€ - 50 000€": 40000,
-                        "50 000€ - 100 000€": 75000,
-                        "Plus de 100 000€": 125000
-                    },
-                    'patrimoine': {
-                        "Moins de 50 000€": 25000,
-                        "50 000€ - 200 000€": 125000,
-                        "200 000€ - 500 000€": 350000,
-                        "Plus de 500 000€": 750000
-                    }
+            # Mapping des champs
+            field_mappings = {
+                'first_name': 'first_name',
+                'last_name': 'last_name',
+                'email': 'email',
+                'phone': 'phone',
+                'age': 'age',
+                'profession': 'profession',
+                'situation_familiale': 'situation_familiale',
+                'objectifs': 'objectifs',
+            }
+
+            # Conversion des valeurs de patrimoine et revenus
+            if 'income' in info:
+                income_mapping = {
+                    "Moins de 30 000€": 25000,
+                    "30 000€ - 50 000€": 40000,
+                    "50 000€ - 100 000€": 75000,
+                    "Plus de 100 000€": 125000
                 }
-    
-                # Préparation des données patrimoniales
-                patrimoine_data = {
-                    "lead_id": lead_id,
-                    "updated_at": datetime.utcnow().isoformat()
+                update_data['revenus_annuels'] = income_mapping.get(info['income'], 0)
+
+            if 'patrimoine' in info:
+                patrimoine_mapping = {
+                    "Moins de 50 000€": 25000,
+                    "50 000€ - 200 000€": 125000,
+                    "200 000€ - 500 000€": 350000,
+                    "Plus de 500 000€": 750000
                 }
-    
-                # Mapping des champs
-                field_mappings = {
-                    'age': ('age', int),
-                    'profession': ('profession', str),
-                    'situation_familiale': ('situation_familiale', str),
-                    'income': ('revenus_annuels', lambda x: conversions['income'].get(x, 0)),
-                    'patrimoine': ('patrimoine_total', lambda x: conversions['patrimoine'].get(x, 0)),
-                    'objectifs': ('objectifs', lambda x: x.split(',') if isinstance(x, str) else [x])
-                }
-    
-                # Construction des données patrimoniales
-                for source_field, (target_field, converter) in field_mappings.items():
-                    if source_field in info:
-                        try:
-                            value = info[source_field]
-                            converted_value = converter(value)
-                            if converted_value is not None:
-                                patrimoine_data[target_field] = converted_value
-                        except (ValueError, TypeError) as e:
-                            logging.error(f"Erreur de conversion pour {source_field}: {e}")
-    
-                # Mise à jour des informations patrimoniales
-                if len(patrimoine_data) > 2:
-                    self.supabase.table('patrimoine_info').upsert(patrimoine_data).execute()
-    
-                # Mise à jour du lead si nécessaire
-                lead_update_data = {
-                    k: info[k]
-                    for k in ['first_name', 'last_name', 'email', 'phone']
-                    if k in info and info[k]
-                }
-                if lead_update_data:
-                    lead_update_data['updated_at'] = datetime.utcnow().isoformat()
-                    self.supabase.table('leads').update(lead_update_data).eq('id', lead_id).execute()
-    
+                update_data['patrimoine_total'] = patrimoine_mapping.get(info['patrimoine'], 0)
+
+            # Ajouter les autres champs mappés
+            for source_field, target_field in field_mappings.items():
+                if source_field in info and info[source_field]:
+                    update_data[target_field] = info[source_field]
+
+            # Mettre à jour la conversation
+            if update_data:
+                self.supabase.table('conversations')\
+                    .update(update_data)\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
+
         except Exception as e:
             logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
             raise
 
-    async def save_recommendations(self, conversation_id: str, collected_info: dict, recommendations: List[str]):
-        """Sauvegarde les préconisations générées dans la base de données"""
+
+    async def save_recommendations(self, conversation_id: str, recommendations: List[str]):
+        """Sauvegarde les préconisations dans la conversation"""
         try:
-            conversation = self.conv_storage.get_conversation(conversation_id)
-            lead_id = conversation.get('lead_id')
-            
-            if not lead_id:
+            # Récupérer la conversation
+            conv_record = self.supabase.table('conversations')\
+                .select('id, preconisations')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+
+            if not conv_record.data:
                 return
-                
-            # Créer une entrée pour chaque préconisation
-            for idx, recommendation in enumerate(recommendations, 1):
-                preconisation_data = {
-                    "lead_id": lead_id,
-                    "conversation_id": conversation_id,
-                    "contenu": recommendation,
-                    "priorite": idx,
-                    "type_preconisation": "chatbot",
-                    "statut": "générée",
-                    "created_at": datetime.utcnow().isoformat()
+
+            # Préparer les préconisations
+            preconisations = [
+                {
+                    'contenu': rec,
+                    'priorite': idx + 1,
+                    'date_creation': datetime.utcnow().isoformat()
                 }
-                
-                self.supabase.table('preconisations').insert(preconisation_data).execute()
-                
+                for idx, rec in enumerate(recommendations)
+            ]
+
+            # Mettre à jour la conversation
+            self.supabase.table('conversations')\
+                .update({
+                    'preconisations': preconisations,
+                    'status': 'terminée'
+                })\
+                .eq('id', conv_record.data[0]['id'])\
+                .execute()
+
         except Exception as e:
             logging.error(f"Erreur lors de la sauvegarde des préconisations: {str(e)}")
             raise
@@ -904,41 +832,37 @@ class ChatBot:
             logging.error(f"Erreur lors de l'extraction des recommandations: {str(e)}")
             return []
 
-    async def update_lead_score(self, lead_id: str) -> None:
-        """Met à jour le score du lead en fonction des informations collectées"""
+    async def update_lead_score(self, conversation_id: str) -> None:
+        """Met à jour le score de la conversation en fonction des informations collectées"""
         try:
-            # Récupérer les informations du lead
-            lead_response = self.supabase.table('leads').select('*').eq('id', lead_id).execute()
-            patrimoine_response = self.supabase.table('patrimoine_info').select('*').eq('lead_id', lead_id).execute()
+            # Récupérer les informations de la conversation
+            conv_response = self.supabase.table('conversations')\
+                .select('*')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
     
-            # Vérifier si les données existent
-            if not lead_response.data:
-                logging.warning(f"Lead non trouvé pour l'ID: {lead_id}")
+            if not conv_response.data:
                 return
     
-            lead_data = lead_response.data[0]
-            patrimoine_data = patrimoine_response.data[0] if patrimoine_response.data else {}
-    
-            # Calcul du score de base
+            conv_data = conv_response.data[0]
             base_score = 0
     
             # Score pour les informations de contact
-            if lead_data:
-                if lead_data.get('email'):
-                    base_score += 20
-                if lead_data.get('phone'):
-                    base_score += 15
-                if lead_data.get('first_name') and lead_data.get('last_name'):
-                    base_score += 15
-                elif lead_data.get('first_name') or lead_data.get('last_name'):
-                    base_score += 10
+            if conv_data.get('email'):
+                base_score += 20
+            if conv_data.get('phone'):
+                base_score += 15
+            if conv_data.get('first_name') and conv_data.get('last_name'):
+                base_score += 15
+            elif conv_data.get('first_name') or conv_data.get('last_name'):
+                base_score += 10
     
-            # Score pour les informations patrimoniales
-            patrimoine_total = int(patrimoine_data.get('patrimoine_total', 0) or 0)
-            revenus = int(patrimoine_data.get('revenus_annuels', 0) or 0)
-            age = int(patrimoine_data.get('age', 0) or 0)
-            objectifs = patrimoine_data.get('objectifs', []) or []
-            profession = patrimoine_data.get('profession', '')
+            # Score patrimonial
+            patrimoine_total = int(conv_data.get('patrimoine_total', 0) or 0)
+            revenus = int(conv_data.get('revenus_annuels', 0) or 0)
+            age = int(conv_data.get('age', 0) or 0)
+            objectifs = conv_data.get('objectifs', []) or []
+            profession = conv_data.get('profession', '')
     
             # Score basé sur le patrimoine
             if patrimoine_total > 1000000:
@@ -975,18 +899,18 @@ class ChatBot:
             if profession in professions_privilegiees:
                 base_score += 20
     
-            # Mise à jour du score dans la base de données
-            self.supabase.table('leads')\
-                .update({'score': base_score, 'updated_at': datetime.utcnow().isoformat()})\
-                .eq('id', lead_id)\
+            # Mise à jour du score
+            self.supabase.table('conversations')\
+                .update({
+                    'score': base_score,
+                    'updated_at': datetime.utcnow().isoformat(),
+                    'needs_followup': base_score >= 70
+                })\
+                .eq('conversation_id', conversation_id)\
                 .execute()
-    
-            logging.info(f"Score mis à jour pour le lead {lead_id}: {base_score}")
     
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour du score: {str(e)}")
-            # Ne pas relever l'erreur pour ne pas bloquer la conversation
-            pass
     
     async def check_need_followup(self, lead_id: str) -> bool:
         """Détermine si un suivi est nécessaire en fonction du score"""
@@ -1016,28 +940,26 @@ class ChatBot:
 
     async def generate_final_analysis(self, collected_info: dict, conversation_id: str) -> str:
         """Génère l'analyse finale et les recommandations"""
-        
-        prompt = f"""En tant que conseillère en gestion de patrimoine, fais une analyse personnalisée:
-    
-        PROFIL CLIENT:
-        {json.dumps(collected_info, indent=2)}
-    
-        STRUCTURE DE LA RÉPONSE:
-        1. Remerciement personnalisé avec le prénom
-        2. Bref résumé de la situation patrimoniale
-        3. Réponse précise à la question initiale: {collected_info.get('initial_query')}
-        4. 2-3 recommandations personnalisées
-        5. Proposition de rendez-vous pour approfondir
-    
-        CONSIGNES:
-        - Sois précise et professionnelle
-        - Montre que tu as bien compris leurs enjeux
-        - Donne des conseils concrets mais garde des éléments pour le RDV
-        - Présente les recommandations de manière claire et structurée
-        - Termine par une incitation à l'action claire"""
-    
         try:
-            # Générer l'analyse avec GPT
+            prompt = f"""En tant que conseillère en gestion de patrimoine, fais une analyse personnalisée:
+    
+            PROFIL CLIENT:
+            {json.dumps(collected_info, indent=2)}
+    
+            STRUCTURE DE LA RÉPONSE:
+            1. Remerciement personnalisé avec le prénom
+            2. Bref résumé de la situation patrimoniale
+            3. Réponse précise à la question initiale: {collected_info.get('initial_query')}
+            4. 2-3 recommandations personnalisées
+            5. Proposition de rendez-vous pour approfondir
+    
+            CONSIGNES:
+            - Sois précise et professionnelle
+            - Montre que tu as bien compris leurs enjeux
+            - Donne des conseils concrets mais garde des éléments pour le RDV
+            - Présente les recommandations de manière claire et structurée
+            - Termine par une incitation à l'action claire"""
+    
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -1052,15 +974,16 @@ class ChatBot:
             # Extraire et sauvegarder les recommandations
             recommendations = await self.extract_recommendations(gpt_response)
             if recommendations:
-                await self.save_recommendations(conversation_id, collected_info, recommendations)
+                await self.save_recommendations(conversation_id, recommendations)
     
             # Mettre à jour le statut de la conversation
-            conversation = self.conv_storage.get_conversation(conversation_id)
-            if conversation.get('lead_id'):
-                self.supabase.table('conversations').update({
+            self.supabase.table('conversations')\
+                .update({
                     'status': 'terminée',
                     'updated_at': datetime.utcnow().isoformat()
-                }).eq('conversation_id', conversation_id).execute()
+                })\
+                .eq('conversation_id', conversation_id)\
+                .execute()
     
             return gpt_response
     
