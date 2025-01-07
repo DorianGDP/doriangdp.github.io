@@ -21,13 +21,26 @@ class ConversationStorage:
     def get_conversation(self, conversation_id: str) -> dict:
         """Récupère ou crée une nouvelle conversation"""
         if conversation_id not in self._conversations:
-            self._conversations[conversation_id] = {
-                'initial_query': None,
-                'messages': [],
-                'info_collected': {},
-                'lead_id': None
-            }
+            self._conversations[conversation_id] = self.create_empty_conversation()
         return self._conversations[conversation_id]
+
+    def create_empty_conversation(self) -> dict:
+        """Crée une nouvelle conversation vide avec la structure initiale"""
+        return {
+            'initial_query': None,
+            'messages': [],
+            'info_collected': {},
+            'current_step': 0,
+            'is_complete': False
+        }
+
+    def reset_conversation(self, conversation_id: str):
+        """Réinitialise une conversation à son état initial"""
+        self._conversations[conversation_id] = self.create_empty_conversation()
+
+    def clear_all_conversations(self):
+        """Efface toutes les conversations en mémoire"""
+        self._conversations.clear()
 
     def add_message(self, conversation_id: str, message: dict):
         """Ajoute un message à la conversation"""
@@ -49,6 +62,40 @@ class ConversationStorage:
         """Récupère les informations collectées"""
         conv = self.get_conversation(conversation_id)
         return conv.get('info_collected', {})
+
+    async def sync_with_database(self, conversation_id: str, supabase_client) -> None:
+        """Synchronise la conversation avec la base de données"""
+        try:
+            conv_data = await supabase_client.table('conversations')\
+                .select('*')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+
+            if conv_data.data:
+                conv = conv_data.data[0]
+                self._conversations[conversation_id] = {
+                    'initial_query': conv.get('initial_query'),
+                    'messages': conv.get('messages', []),
+                    'info_collected': {
+                        'first_name': conv.get('first_name'),
+                        'last_name': conv.get('last_name'),
+                        'age': conv.get('age'),
+                        'email': conv.get('email'),
+                        'phone': conv.get('phone'),
+                        'profession': conv.get('profession'),
+                        'income': conv.get('revenus_annuels'),
+                        'patrimoine': conv.get('patrimoine_total'),
+                        'situation_familiale': conv.get('situation_familiale'),
+                        'objectifs': conv.get('objectifs', [])
+                    },
+                    'is_complete': conv.get('status') == 'terminée'
+                }
+            else:
+                self.reset_conversation(conversation_id)
+        except Exception as e:
+            logging.error(f"Erreur lors de la synchronisation avec la base de données: {str(e)}")
+            # En cas d'erreur, on réinitialise la conversation
+            self.reset_conversation(conversation_id)
 
 class InfoCollector:
     def __init__(self):
@@ -1010,8 +1057,85 @@ class ChatBot:
             logging.error(f"Erreur dans generate_final_analysis: {str(e)}")
             return "Je suis désolée, je ne peux pas générer l'analyse complète pour le moment. Un conseiller va vous recontacter rapidement."
 
+    async def reset_conversation(self, conversation_id: str) -> None:
+        """Réinitialise complètement une conversation"""
+        try:
+            # Réinitialiser la mémoire
+            self.conv_storage.reset_conversation(conversation_id)
+            
+            # Réinitialiser dans la base de données
+            await self.supabase.table('conversations')\
+                .update({
+                    'initial_query': None,
+                    'messages': [],
+                    'first_name': None,
+                    'last_name': None,
+                    'age': None,
+                    'email': None,
+                    'phone': None,
+                    'profession': None,
+                    'revenus_annuels': None,
+                    'patrimoine_total': None,
+                    'situation_familiale': None,
+                    'objectifs': None,
+                    'score': 0,
+                    'status': 'en_cours',
+                    'preconisations': [],
+                    'needs_followup': False,
+                    'updated_at': datetime.utcnow().isoformat()
+                })\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+        except Exception as e:
+            logging.error(f"Erreur lors de la réinitialisation de la conversation: {str(e)}")
+
+    async def initialize_session(self, conversation_id: str) -> str:
+        """Initialise ou récupère une session de conversation"""
+        try:
+            # Vérifier si la conversation existe dans la base de données
+            conv_data = await self.supabase.table('conversations')\
+                .select('conversation_id, status')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+
+            if not conv_data.data:
+                # Si la conversation n'existe pas, en créer une nouvelle
+                new_id = self.generate_unique_id()
+                await self.supabase.table('conversations').insert({
+                    'conversation_id': new_id,
+                    'status': 'en_cours',
+                    'created_at': datetime.utcnow().isoformat(),
+                    'updated_at': datetime.utcnow().isoformat()
+                }).execute()
+                self.conv_storage.reset_conversation(new_id)
+                return new_id
+            else:
+                # Si la conversation existe mais est terminée, en créer une nouvelle
+                if conv_data.data[0]['status'] == 'terminée':
+                    new_id = self.generate_unique_id()
+                    await self.supabase.table('conversations').insert({
+                        'conversation_id': new_id,
+                        'status': 'en_cours',
+                        'created_at': datetime.utcnow().isoformat(),
+                        'updated_at': datetime.utcnow().isoformat()
+                    }).execute()
+                    self.conv_storage.reset_conversation(new_id)
+                    return new_id
+                
+                # Sinon, synchroniser la conversation existante
+                await self.conv_storage.sync_with_database(conversation_id, self.supabase)
+                return conversation_id
+
+        except Exception as e:
+            logging.error(f"Erreur lors de l'initialisation de la session: {str(e)}")
+            new_id = self.generate_unique_id()
+            self.conv_storage.reset_conversation(new_id)
+            return new_id
+
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
+            # Initialiser ou récupérer la session
+            conversation_id = await self.initialize_session(conversation_id)
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
     
