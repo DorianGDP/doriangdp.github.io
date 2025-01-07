@@ -4,57 +4,65 @@
     <meta charset="UTF-8">
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        /* Layout de base */
+        .gradient-header {
+            background: linear-gradient(135deg, #4c1d95 0%, #5b21b6 100%);
+        }
         .chat-container {
-            height: calc(100vh - 140px); /* Réduit la hauteur */
-            max-width: 800px; /* Limite la largeur maximale */
-            margin: 0 auto; /* Centre le conteneur */
+            height: calc(100vh - 180px);
         }
-
-        .header-container {
-            height: 64px; /* Hauteur fixe pour l'en-tête */
-        }
-
-        .footer-container {
-            height: 76px; /* Hauteur fixe pour le pied de page */
-        }
-
-        /* Style des messages */
         .message-bot {
             background-color: #f3f4f6;
             border-radius: 15px 15px 15px 0;
-            max-width: 85%; /* Limite la largeur des messages */
-            margin-bottom: 1rem;
         }
-
         .message-user {
             background-color: #06b6d4;
             border-radius: 15px 15px 0 15px;
-            max-width: 85%;
-            margin-left: auto; /* Aligne à droite */
-            margin-bottom: 1rem;
         }
-
-        /* Animations */
         @keyframes slideIn {
-            from { transform: translateY(10px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
         }
         
         .message-animation {
-            animation: slideIn 0.2s ease-out forwards;
+            animation: slideIn 0.3s ease-out forwards;
+        }
+        
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #06b6d4;
+            border-radius: 3px;
+        }
+        
+        .options-button {
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .options-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background-color: #f3f4f6;
         }
 
-        /* Indicateur de frappe */
         .typing-indicator {
             display: inline-flex;
             gap: 2px;
-            padding: 8px 12px;
+            padding: 12px 16px;
         }
         
         .typing-dot {
-            width: 4px;
-            height: 4px;
+            width: 6px;
+            height: 6px;
             background-color: #6B7280;
             border-radius: 50%;
             animation: typing-bounce 1.4s infinite ease-in-out;
@@ -65,272 +73,185 @@
         
         @keyframes typing-bounce {
             0%, 80%, 100% { transform: translateY(0); }
-            40% { transform: translateY(-4px); }
-        }
-
-        /* Boutons d'options */
-        .option-button {
-            transition: all 0.2s ease;
-            font-size: 0.95rem;
-        }
-        
-        .option-button:hover:not(:disabled) {
-            background-color: #e5e7eb;
-            transform: translateY(-1px);
-        }
-        
-        .option-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* Scrollbar personnalisée */
-        .custom-scrollbar {
-            scrollbar-width: thin;
-            scrollbar-color: #06b6d4 #f3f4f6;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 4px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: #f3f4f6;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #06b6d4;
-            border-radius: 2px;
-        }
-
-        /* Gradient de l'en-tête */
-        .gradient-header {
-            background: linear-gradient(135deg, #4c1d95 0%, #5b21b6 100%);
+            40% { transform: translateY(-8px); }
         }
     </style>
 </head>
 <body class="h-screen flex flex-col bg-gray-50">
-    <header class="gradient-header header-container shadow-md">
-        <div class="max-w-800px mx-auto h-full px-4 flex items-center">
-            <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-white flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                    </svg>
-                </div>
-                <div>
-                    <h1 class="text-lg font-bold text-white">Emma - Votre Conseillère Patrimoniale</h1>
-                    <p class="text-xs text-gray-200">En ligne</p>
-                </div>
+    <header class="gradient-header p-4 shadow-lg">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-purple-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-white">Emma - Votre Conseillère Patrimoniale</h1>
+                <p class="text-sm text-gray-200">En ligne</p>
             </div>
         </div>
     </header>
 
-    <div class="flex-1 overflow-hidden">
-        <div id="chat-messages" class="chat-container custom-scrollbar overflow-y-auto px-4 py-3"></div>
-    </div>
+    <div id="chat-messages" class="chat-container flex-1 overflow-y-auto p-4 space-y-4"></div>
 
-    <footer class="footer-container border-t bg-white shadow-md">
-        <div class="max-w-800px mx-auto h-full p-4">
-            <div class="flex gap-2">
-                <input type="text" 
-                    id="user-input" 
-                    class="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-gray-800 bg-white 
-                           focus:outline-none focus:ring-1 focus:ring-cyan-400 focus:border-cyan-400 
-                           text-sm"
-                    placeholder="Posez votre question...">
-                <button id="send-button" 
-                        class="bg-cyan-500 hover:bg-cyan-600 text-white px-5 py-2 rounded-xl 
-                               font-medium transition-colors duration-200 flex items-center gap-2 
-                               text-sm">
-                    <span>Envoyer</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                    </svg>
-                </button>
-            </div>
+    <footer class="p-4 border-t bg-white shadow-lg">
+        <div class="max-w-4xl mx-auto flex gap-3">
+            <input type="text" 
+                   id="user-input" 
+                   class="flex-1 p-3 border border-gray-300 rounded-xl text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
+                   placeholder="Posez votre question...">
+            <button id="send-button" 
+                    class="bg-cyan-500 hover:bg-cyan-600 text-white px-6 py-2 rounded-xl font-medium transition-colors duration-200 flex items-center gap-2">
+                <span>Envoyer</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+            </button>
         </div>
     </footer>
 
     <script>
-        // Configuration du chat
+        // États et configurations
         const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';
         const STORAGE_KEY = 'chatConversationId';
-        const DOM = {
-            messagesContainer: document.getElementById('chat-messages'),
-            userInput: document.getElementById('user-input'),
-            sendButton: document.getElementById('send-button')
-        };
+        let conversationId = null;
         
-        // État global du chat
-        const chatState = {
-            conversationId: null,
-            isConversationActive: false,
-            lastMessage: null,
-            isWaitingForResponse: false
-        };
-        
-        // Helpers pour les IDs et le stockage
-        const generateUniqueId = () => {
-            const timestamp = Date.now();
-            const randomStr = Math.random().toString(36).substring(2, 10);
-            return `conv_${timestamp}_${randomStr}`;
-        };
-        
-        // Gestion des messages et de l'interface
+        // Interface utilisateur
         const UI = {
+            elements: {
+                messagesContainer: document.getElementById('chat-messages'),
+                userInput: document.getElementById('user-input'),
+                sendButton: document.getElementById('send-button')
+            },
+        
             createTypingIndicator() {
-                const template = `
-                    <div class="message-container message-animation">
-                        <div class="flex justify-start">
-                            <div class="message-bot typing-indicator">
-                                ${Array(3).fill('<div class="typing-dot"></div>').join('')}
-                            </div>
-                        </div>
-                    </div>
-                `;
-                const div = document.createElement('div');
-                div.innerHTML = template;
-                return div.firstElementChild;
+                const typingDiv = document.createElement('div');
+                typingDiv.className = 'message-container message-animation';
+                
+                const innerDiv = document.createElement('div');
+                innerDiv.className = 'flex justify-start';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-bot typing-indicator';
+                
+                for (let i = 0; i < 3; i++) {
+                    const dot = document.createElement('div');
+                    dot.className = 'typing-dot';
+                    contentDiv.appendChild(dot);
+                }
+                
+                innerDiv.appendChild(contentDiv);
+                typingDiv.appendChild(innerDiv);
+                return typingDiv;
             },
         
             appendMessage(sender, content, options = []) {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'message-container message-animation';
                 
-                const isUser = sender === 'user';
-                const template = `
-                    <div class="flex ${isUser ? 'justify-end' : 'justify-start'}">
-                        <div class="p-4 max-w-[80%] whitespace-pre-wrap ${
-                            isUser ? 'message-user text-white' : 'message-bot text-gray-800'
-                        }">
-                            ${this.escapeHtml(content)}
-                            ${this.createOptionsHtml(options)}
-                        </div>
-                    </div>
-                `;
+                const innerDiv = document.createElement('div');
+                innerDiv.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
                 
-                messageDiv.innerHTML = template;
-                DOM.messagesContainer.appendChild(messageDiv);
-                this.scrollToBottom();
+                const contentDiv = document.createElement('div');
+                contentDiv.className = `p-4 max-w-[80%] whitespace-pre-wrap ${
+                    sender === 'user' 
+                        ? 'message-user text-white' 
+                        : 'message-bot text-gray-800'
+                }`;
                 
-                // Ajouter les événements aux boutons d'options
-                if (options.length) {
-                    const buttonsDiv = messageDiv.querySelector('.options-container');
-                    this.setupOptionsButtons(buttonsDiv, options);
-                }
-            },
-        
-            escapeHtml(html) {
-                const div = document.createElement('div');
-                div.textContent = html;
-                return div.innerHTML;
-            },
-        
-            createOptionsHtml(options) {
-                if (!options.length) return '';
-                return `
-                    <div class="options-container mt-3 space-y-2">
-                        ${options.map(option => `
-                            <button class="w-full p-2 text-left hover:bg-cyan-100 rounded-lg border 
-                                    border-cyan-200 transition-colors option-button">
-                                ${this.escapeHtml(option)}
-                            </button>
-                        `).join('')}
-                    </div>
-                `;
-            },
-        
-            setupOptionsButtons(container, options) {
-                if (!container) return;
-                const buttons = container.querySelectorAll('.option-button');
-                buttons.forEach((button, index) => {
-                    button.addEventListener('click', () => {
-                        this.handleOptionClick(button, options[index], container);
+                contentDiv.textContent = String(content);
+                
+                if (options && options.length > 0) {
+                    const optionsDiv = document.createElement('div');
+                    optionsDiv.className = 'mt-3 space-y-2';
+                    
+                    options.forEach(option => {
+                        const button = document.createElement('button');
+                        button.className = 'w-full p-2 text-left hover:bg-cyan-100 rounded-lg border border-cyan-200 transition-colors';
+                        button.textContent = option;
+                        button.onclick = () => {
+                            chatOperations.handleOptionClick(option, optionsDiv);
+                        };
+                        optionsDiv.appendChild(button);
                     });
-                });
-            },
-        
-            handleOptionClick(clickedButton, option, container) {
-                // Désactiver tous les boutons
-                container.querySelectorAll('.option-button').forEach(btn => {
-                    btn.disabled = true;
-                    btn.classList.add('opacity-50', 'cursor-not-allowed');
-                });
+                    
+                    contentDiv.appendChild(optionsDiv);
+                }
                 
-                // Envoyer le message sélectionné
-                chatOperations.sendMessage(option);
+                innerDiv.appendChild(contentDiv);
+                messageDiv.appendChild(innerDiv);
+                this.elements.messagesContainer.appendChild(messageDiv);
+                this.scrollToBottom();
             },
         
             scrollToBottom() {
-                DOM.messagesContainer.scrollTop = DOM.messagesContainer.scrollHeight;
+                this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
             },
         
-            setInputState(disabled) {
-                DOM.userInput.disabled = disabled;
-                DOM.sendButton.disabled = disabled;
+            setInputState(disabled, options = true) {
+                this.elements.userInput.disabled = disabled || options;
+                this.elements.sendButton.disabled = disabled || options;
+                if (!disabled && !options) {
+                    this.elements.userInput.focus();
+                }
+            },
+        
+            disableOptions(optionsDiv) {
+                optionsDiv.querySelectorAll('button').forEach(btn => {
+                    btn.disabled = true;
+                    btn.className += ' opacity-50 cursor-not-allowed';
+                });
+            },
+        
+            clearInput() {
+                this.elements.userInput.value = '';
             }
         };
         
-        // Opérations principales du chat
+        // Opérations du chat
         const chatOperations = {
-            async initialize() {
-                chatState.conversationId = generateUniqueId();
-                chatState.isConversationActive = false;
-                chatState.lastMessage = null;
+            initialize() {
+                conversationId = this.generateConversationId();
+                UI.elements.messagesContainer.innerHTML = '';
                 
-                // Vider le conteneur de messages
-                DOM.messagesContainer.innerHTML = '';
-                
-                // Réinitialiser l'interface
-                UI.setInputState(false);
-                
-                // Afficher le message de bienvenue
                 UI.appendMessage('bot', 
                     "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. " +
                     "Je suis là pour répondre à vos questions et vous accompagner dans vos " +
                     "projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?"
                 );
                 
-                // Focus sur l'input
-                DOM.userInput.focus();
-                
-                // Sauvegarder le nouvel ID
-                localStorage.setItem(STORAGE_KEY, chatState.conversationId);
+                UI.setInputState(false);
+                localStorage.setItem(STORAGE_KEY, conversationId);
+            },
+        
+            generateConversationId() {
+                const timestamp = Date.now();
+                const randomStr = Math.random().toString(36).substring(2, 10);
+                return `conv_${timestamp}_${randomStr}`;
             },
         
             async sendMessage(message = null) {
-                const messageText = message || DOM.userInput.value.trim();
-                if (!messageText || chatState.isWaitingForResponse) return;
+                const messageText = message || UI.elements.userInput.value.trim();
+                if (!messageText) return;
         
-                // Nettoyer l'input et désactiver les contrôles
-                DOM.userInput.value = '';
+                UI.clearInput();
                 UI.setInputState(true);
-                chatState.isWaitingForResponse = true;
         
                 try {
-                    // Afficher le message utilisateur
                     UI.appendMessage('user', messageText);
                     
-                    // Afficher l'indicateur de frappe
                     const typingIndicator = UI.createTypingIndicator();
-                    DOM.messagesContainer.appendChild(typingIndicator);
+                    UI.elements.messagesContainer.appendChild(typingIndicator);
         
-                    // Appeler l'API
                     const response = await this.callApi(messageText);
-                    chatState.isConversationActive = true;
-        
-                    // Supprimer l'indicateur de frappe
                     typingIndicator.remove();
         
-                    // Traiter la réponse
                     this.handleApiResponse(response);
         
                 } catch (error) {
                     console.error('Error:', error);
+                    typingIndicator?.remove();
                     this.handleError();
-                } finally {
-                    chatState.isWaitingForResponse = false;
                 }
             },
         
@@ -344,30 +265,22 @@
                     },
                     body: JSON.stringify({
                         question: message,
-                        conversation_id: chatState.conversationId
+                        conversation_id: conversationId
                     })
                 });
         
-                if (!response.ok) {
-                    throw new Error(`HTTP Error: ${response.status}`);
-                }
-        
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
                 return response.json();
             },
         
             handleApiResponse(data) {
-                // Afficher le message du bot
-                UI.appendMessage('bot', data.content, data.options || []);
-                
-                // Gérer l'état de l'input en fonction des options
-                const hasOptions = data.options && data.options.length > 0;
-                UI.setInputState(hasOptions);
-                
-                // Mettre à jour l'ID de conversation si nécessaire
-                if (data.conversation_id && data.conversation_id !== chatState.conversationId) {
-                    chatState.conversationId = data.conversation_id;
-                    localStorage.setItem(STORAGE_KEY, chatState.conversationId);
+                if (data.conversation_id && data.conversation_id !== conversationId) {
+                    conversationId = data.conversation_id;
+                    localStorage.setItem(STORAGE_KEY, conversationId);
                 }
+        
+                UI.appendMessage('bot', data.content, data.options || []);
+                UI.setInputState(false, Boolean(data.options?.length));
             },
         
             handleError() {
@@ -376,15 +289,20 @@
                     "Veuillez réessayer dans quelques instants."
                 );
                 UI.setInputState(false);
+            },
+        
+            handleOptionClick(option, optionsDiv) {
+                UI.disableOptions(optionsDiv);
+                this.sendMessage(option);
             }
         };
         
         // Event Listeners
         document.addEventListener('DOMContentLoaded', () => chatOperations.initialize());
         
-        DOM.sendButton.addEventListener('click', () => chatOperations.sendMessage());
+        UI.elements.sendButton.addEventListener('click', () => chatOperations.sendMessage());
         
-        DOM.userInput.addEventListener('keypress', (e) => {
+        UI.elements.userInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 chatOperations.sendMessage();
@@ -397,10 +315,9 @@
             }
         });
         
-        // Gérer le reset au rechargement si nécessaire
-        window.addEventListener('beforeunload', () => {
-            if (chatState.isConversationActive) {
-                localStorage.removeItem(STORAGE_KEY);
+        window.addEventListener('storage', (e) => {
+            if (e.key === STORAGE_KEY) {
+                conversationId = e.newValue || chatOperations.generateConversationId();
             }
         });
     </script>
