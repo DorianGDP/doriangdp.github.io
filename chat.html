@@ -43,7 +43,7 @@
             background: #06b6d4;
             border-radius: 3px;
         }
-        /* Ajoutez ces styles */
+        
         .options-button {
             transition: all 0.2s ease-in-out;
         }
@@ -52,6 +52,28 @@
             opacity: 0.5;
             cursor: not-allowed;
             background-color: #f3f4f6;
+        }
+
+        .typing-indicator {
+            display: inline-flex;
+            gap: 2px;
+            padding: 12px 16px;
+        }
+        
+        .typing-dot {
+            width: 6px;
+            height: 6px;
+            background-color: #6B7280;
+            border-radius: 50%;
+            animation: typing-bounce 1.4s infinite ease-in-out;
+        }
+        
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+        
+        @keyframes typing-bounce {
+            0%, 80%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-8px); }
         }
     </style>
 </head>
@@ -90,12 +112,50 @@
 
     <script>
         const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';
-        let conversationId = localStorage.getItem('chatConversationId') || `conv_${Date.now()}`;
         const messagesContainer = document.getElementById('chat-messages');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
 
-        // Fonction pour ajouter un message
+        function generateUniqueId() {
+            const timestamp = Date.now();
+            const randomStr = Math.random().toString(36).substring(2, 10);
+            return `conv_${timestamp}_${randomStr}`;
+        }
+
+        // Gestion de l'ID de conversation
+        function getConversationId() {
+            let id = localStorage.getItem('chatConversationId');
+            if (!id) {
+                id = generateUniqueId();
+                localStorage.setItem('chatConversationId', id);
+            }
+            return id;
+        }
+
+        let conversationId = getConversationId();
+
+        // Indicateur de frappe
+        function createTypingIndicator() {
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'message-container message-animation';
+            
+            const innerDiv = document.createElement('div');
+            innerDiv.className = 'flex justify-start';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-bot typing-indicator';
+            
+            for (let i = 0; i < 3; i++) {
+                const dot = document.createElement('div');
+                dot.className = 'typing-dot';
+                contentDiv.appendChild(dot);
+            }
+            
+            innerDiv.appendChild(contentDiv);
+            typingDiv.appendChild(innerDiv);
+            return typingDiv;
+        }
+
         function appendMessage(sender, content, options = []) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message-container message-animation';
@@ -104,13 +164,13 @@
             innerDiv.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
             
             const contentDiv = document.createElement('div');
-            contentDiv.className = `p-4 max-w-[80%] ${
+            contentDiv.className = `p-4 max-w-[80%] whitespace-pre-wrap ${
                 sender === 'user' 
                     ? 'message-user text-white' 
                     : 'message-bot text-gray-800'
             }`;
             
-            // S'assurer que le contenu est une chaîne de caractères
+            // Rendu du contenu avec support du retour à la ligne
             contentDiv.textContent = String(content);
             
             // Ajouter les boutons d'options si présents
@@ -144,7 +204,6 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
-        // Fonction d'envoi de message
         async function sendMessage(message = null) {
             const messageText = message || userInput.value.trim();
             if (!messageText) return;
@@ -155,6 +214,10 @@
         
             try {
                 appendMessage('user', messageText);
+
+                // Ajouter l'indicateur de frappe
+                const typingIndicator = createTypingIndicator();
+                messagesContainer.appendChild(typingIndicator);
         
                 const response = await fetch(API_URL, {
                     method: 'POST',
@@ -165,9 +228,12 @@
                     },
                     body: JSON.stringify({
                         question: messageText,
-                        conversation_id: conversationId || `conv_${Date.now()}`
+                        conversation_id: conversationId
                     })
                 });
+                
+                // Retirer l'indicateur de frappe
+                typingIndicator.remove();
                 
                 if (!response.ok) {
                     throw new Error(`HTTP Error: ${response.status}`);
@@ -175,7 +241,7 @@
                 
                 const data = await response.json();
                 
-                if (data.conversation_id) {
+                if (data.conversation_id && data.conversation_id !== conversationId) {
                     conversationId = data.conversation_id;
                     localStorage.setItem('chatConversationId', conversationId);
                 }
@@ -188,6 +254,7 @@
         
             } catch (error) {
                 console.error('Error:', error);
+                typingIndicator?.remove();
                 appendMessage('bot', 
                     "Désolé, je rencontre un problème technique. Veuillez réessayer dans quelques instants."
                 );
@@ -197,21 +264,31 @@
             }
         }
 
-        // Event Listeners
-        document.addEventListener('DOMContentLoaded', function() {
+        function initializeChat() {
             // Message de bienvenue
             appendMessage('bot', "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Je suis là pour répondre à vos questions et vous accompagner dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
             
-            // Gestionnaire de clic pour le bouton d'envoi
-            sendButton.addEventListener('click', sendMessage);
-            
-            // Gestionnaire de touche Entrée pour l'input
-            userInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                }
-            });
+            // Focus sur l'input
+            userInput.focus();
+        }
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', initializeChat);
+
+        sendButton.addEventListener('click', () => sendMessage());
+        
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Gérer la réinitialisation de la conversation
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'chatConversationId') {
+                conversationId = e.newValue || generateUniqueId();
+            }
         });
     </script>
 </body>
