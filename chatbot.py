@@ -905,41 +905,38 @@ class ChatBot:
             return []
 
     async def update_lead_score(self, lead_id: str) -> None:
-        """
-        Met à jour le score du lead en fonction des informations collectées
-        """
+        """Met à jour le score du lead en fonction des informations collectées"""
         try:
-            # Récupérer toutes les informations du lead
-            lead_data = self.supabase.table('leads')\
-                .select('*')\
-                .eq('id', lead_id)\
-                .single()\
-                .execute()
+            # Récupérer les informations du lead
+            lead_response = self.supabase.table('leads').select('*').eq('id', lead_id).execute()
+            patrimoine_response = self.supabase.table('patrimoine_info').select('*').eq('lead_id', lead_id).execute()
     
-            patrimoine_data = self.supabase.table('patrimoine_info')\
-                .select('*')\
-                .eq('lead_id', lead_id)\
-                .single()\
-                .execute()
+            # Vérifier si les données existent
+            if not lead_response.data:
+                logging.warning(f"Lead non trouvé pour l'ID: {lead_id}")
+                return
+    
+            lead_data = lead_response.data[0]
+            patrimoine_data = patrimoine_response.data[0] if patrimoine_response.data else None
     
             # Calcul du score de base
             base_score = 0
-            
+    
             # Score pour les informations de contact
-            if lead_data.data:
-                if lead_data.data.get('email'):
+            if lead_data:
+                if lead_data.get('email'):
                     base_score += 20
-                if lead_data.data.get('phone'):
+                if lead_data.get('phone'):
                     base_score += 15
-                if lead_data.data.get('first_name') and lead_data.data.get('last_name'):
+                if lead_data.get('first_name') and lead_data.get('last_name'):
                     base_score += 15
-                elif lead_data.data.get('first_name') or lead_data.data.get('last_name'):
+                elif lead_data.get('first_name') or lead_data.get('last_name'):
                     base_score += 10
     
             # Score pour les informations patrimoniales
-            if patrimoine_data.data:
+            if patrimoine_data:
                 # Score basé sur le patrimoine
-                patrimoine_total = patrimoine_data.data.get('patrimoine_total', 0)
+                patrimoine_total = patrimoine_data.get('patrimoine_total', 0)
                 if patrimoine_total > 1000000:
                     base_score += 50
                 elif patrimoine_total > 500000:
@@ -950,7 +947,7 @@ class ChatBot:
                     base_score += 10
     
                 # Score basé sur les revenus
-                revenus = patrimoine_data.data.get('revenus_annuels', 0)
+                revenus = patrimoine_data.get('revenus_annuels', 0)
                 if revenus > 100000:
                     base_score += 30
                 elif revenus > 50000:
@@ -959,12 +956,12 @@ class ChatBot:
                     base_score += 10
     
                 # Score basé sur les objectifs définis
-                objectifs = patrimoine_data.data.get('objectifs', [])
+                objectifs = patrimoine_data.get('objectifs', [])
                 if objectifs:
                     base_score += len(objectifs) * 5
     
-                # Score basé sur l'âge (segment privilégié)
-                age = patrimoine_data.data.get('age', 0)
+                # Score basé sur l'âge
+                age = patrimoine_data.get('age', 0)
                 if 35 <= age <= 65:
                     base_score += 15
     
@@ -974,7 +971,7 @@ class ChatBot:
                     "Profession libérale",
                     "Cadre supérieur"
                 ]
-                if patrimoine_data.data.get('profession') in professions_privilegiees:
+                if patrimoine_data.get('profession') in professions_privilegiees:
                     base_score += 20
     
             # Mise à jour du score dans la base de données
@@ -988,17 +985,16 @@ class ChatBot:
             raise
     
     async def check_need_followup(self, lead_id: str) -> bool:
-        """
-        Détermine si un suivi est nécessaire en fonction du score et des informations
-        """
+        """Détermine si un suivi est nécessaire en fonction du score"""
         try:
-            lead_data = self.supabase.table('leads')\
+            # Récupérer le lead
+            lead_response = self.supabase.table('leads')\
                 .select('score')\
                 .eq('id', lead_id)\
-                .single()\
                 .execute()
                 
-            if lead_data.data and lead_data.data.get('score', 0) >= 70:
+            # Vérifier si le lead existe et a un score suffisant
+            if lead_response.data and lead_response.data[0]['score'] >= 70:
                 self.supabase.table('conversations')\
                     .update({
                         'needs_followup': True,
