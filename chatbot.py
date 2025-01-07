@@ -430,7 +430,7 @@ class ChatBot:
             if is_valid:
                 # Mettre à jour les informations collectées
                 self.conv_storage.update_info(conversation_id, {current_field: validated_value})
-                await self.update_database(conversation_id, {current_field: validated_value})
+                self.update_database(conversation_id, {current_field: validated_value})  
                 
                 # Mise à jour du contexte pour la prochaine question
                 updated_info = collected_info.copy()
@@ -642,7 +642,7 @@ class ChatBot:
                 # Ne mettre à jour que si nous avons des données valides
                 if len(patrimoine_data) > 1:  # Plus que juste lead_id
                     logging.info(f"Mise à jour patrimoine_info avec: {patrimoine_data}")
-                    await self.supabase.table('patrimoine_info').upsert(
+                    self.supabase.table('patrimoine_info').upsert(  # Suppression du await
                         {
                             **patrimoine_data,
                             "updated_at": datetime.utcnow().isoformat()
