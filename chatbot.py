@@ -359,75 +359,72 @@ class ChatBot:
         supabase_key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(supabase_url, supabase_key)
 
-    async def process_response(
-        self,
-        user_message: str,
-        conversation_id: str,
-        collected_info: dict,
-        current_field: str
-    ) -> dict:
-        """Traite la réponse de l'utilisateur et génère la prochaine interaction"""
-        
-        system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
-        
-        CONTEXTE:
-        - Question initiale du client: {collected_info.get('initial_query', '')}
-        - Prénom connu: {collected_info.get('first_name', '')}
-        - Champ actuel: {current_field}
-        
-        DIRECTIVES:
-        1. Sois naturelle et empathique dans tes réponses
-        2. Si la réponse est valide, fais un bref retour positif avant de passer à la suite
-        3. Si la réponse est invalide, explique poliment pourquoi et redemande l'information
-        4. Adapte ton langage selon le profil (plus formel si patrimoine élevé)
-        5. N'utilise jamais "enchantée" après le premier message
-        6. Ne pose qu'une seule question à la fois
-        
-        INFORMATIONS COLLECTÉES:
-        {json.dumps(collected_info, indent=2)}
-
-        RÉPONSE ATTENDUE:
-        {
-            "is_valid": bool,  # La réponse est-elle valide ?
-            "extracted_value": str,  # Valeur extraite de la réponse
-            "next_message": str,  # Message à envoyer à l'utilisateur
-            "should_proceed": bool  # Faut-il passer à la question suivante ?
-        }"""
-
+    async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Message du client: {user_message}"}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.7
-            )
-
-            result = json.loads(response.choices[0].message.content)
+            # Ajouter la progression
+            completion = self.info_collector.get_completion_percentage(collected_info)
             
-            # Si la réponse est valide, mettre à jour la base de données
-            if result["is_valid"] and result["extracted_value"]:
-                await self.update_database(conversation_id, {current_field: result["extracted_value"]})
+            system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
+            
+            CONTEXTE:
+            - Question initiale du client: {collected_info.get('initial_query', '')}
+            - Prénom connu: {collected_info.get('first_name', '')}
+            - Champ actuel: {current_field}
+            - Progression: {completion}%
+            
+            DIRECTIVES:
+            1. Sois naturelle et empathique dans tes réponses
+            2. Si la réponse est valide, fais un bref retour positif avant de passer à la suite
+            3. Si la réponse est invalide, explique poliment pourquoi
+            4. Adapte ton langage selon le profil (plus formel si patrimoine élevé)
+            5. N'utilise jamais "enchantée" après le premier message
+            6. Ne pose qu'une seule question à la fois
+            7. Si la progression est > 75%, encourage le client en mentionnant qu'il ne reste que quelques informations
+            
+            INFORMATIONS COLLECTÉES:
+            {json.dumps(collected_info, indent=2)}
+    
+            RÉPONSE ATTENDUE:
+            {{
+                "is_valid": bool,  # La réponse est-elle valide ?
+                "extracted_value": str,  # Valeur extraite de la réponse
+                "next_message": str,  # Message à envoyer à l'utilisateur
+                "should_proceed": bool  # Faut-il passer à la question suivante ?
+            }}"""
+    
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"Message du client: {user_message}"}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.7
+                )
+                result = json.loads(response.choices[0].message.content)
                 
-            return {
-                'type': 'text',
-                'content': result["next_message"],
-                'options': self.info_collector.get_field_options(current_field),
-                'valid': result["is_valid"],
-                'should_proceed': result["should_proceed"]
-            }
-
-        except Exception as e:
-            logging.error(f"Erreur dans process_response: {str(e)}")
-            return {
-                'type': 'text',
-                'content': "Je suis désolée, j'ai rencontré une difficulté. Pourriez-vous reformuler votre réponse ?",
-                'options': [],
-                'valid': False,
-                'should_proceed': False
-            }
+                # Si la réponse est valide, mettre à jour la base de données
+                if result["is_valid"] and result["extracted_value"]:
+                    await self.update_database(conversation_id, {current_field: result["extracted_value"]})
+                    
+                return {
+                    'type': 'text',
+                    'content': result["next_message"],
+                    'options': self.info_collector.get_field_options(current_field),
+                    'valid': result["is_valid"],
+                    'should_proceed': result["should_proceed"]
+                }
+    
+            except Exception as e:
+                logging.error(f"Erreur dans process_response: {str(e)}")
+                return {
+                    'type': 'text',
+                    'content': "Je suis désolée, j'ai rencontré une difficulté. Pourriez-vous reformuler votre réponse ?",
+                    'options': [],
+                    'valid': False,
+                    'should_proceed': False
+                }
 
     async def generate_response(self, message: str, field: str, next_info: dict, collected_info: dict) -> dict:
         try:
