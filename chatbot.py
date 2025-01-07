@@ -360,6 +360,7 @@ class ChatBot:
         self.supabase = create_client(supabase_url, supabase_key)
 
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
+        """Traite la réponse de l'utilisateur"""
         try:
             # Ajouter la progression
             completion = self.info_collector.get_completion_percentage(collected_info)
@@ -379,52 +380,56 @@ class ChatBot:
             4. Adapte ton langage selon le profil (plus formel si patrimoine élevé)
             5. N'utilise jamais "enchantée" après le premier message
             6. Ne pose qu'une seule question à la fois
-            7. Si la progression est > 75%, encourage le client en mentionnant qu'il ne reste que quelques informations
-            
-            INFORMATIONS COLLECTÉES:
-            {json.dumps(collected_info, indent=2)}
+            7. Si la progression est > 75%, encourage le client en mentionnant qu'il ne reste que quelques informations"""
     
-            RÉPONSE ATTENDUE:
-            {{
-                "is_valid": bool,  # La réponse est-elle valide ?
-                "extracted_value": str,  # Valeur extraite de la réponse
-                "next_message": str,  # Message à envoyer à l'utilisateur
-                "should_proceed": bool  # Faut-il passer à la question suivante ?
-            }}"""
-    
-            try:
-                response = self.client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"Message du client: {user_message}"}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.7
+            field_info = self.info_collector.get_field_info(current_field)
+            if field_info:
+                is_valid, validated_value, error_msg = self.info_collector.validate_response(
+                    current_field, user_message, collected_info
                 )
-                result = json.loads(response.choices[0].message.content)
                 
-                # Si la réponse est valide, mettre à jour la base de données
-                if result["is_valid"] and result["extracted_value"]:
-                    await self.update_database(conversation_id, {current_field: result["extracted_value"]})
+                if is_valid:
+                    self.conv_storage.update_info(conversation_id, {current_field: validated_value})
+                    await self.update_database(conversation_id, {current_field: validated_value})
                     
-                return {
-                    'type': 'text',
-                    'content': result["next_message"],
-                    'options': self.info_collector.get_field_options(current_field),
-                    'valid': result["is_valid"],
-                    'should_proceed': result["should_proceed"]
-                }
-    
-            except Exception as e:
-                logging.error(f"Erreur dans process_response: {str(e)}")
-                return {
-                    'type': 'text',
-                    'content': "Je suis désolée, j'ai rencontré une difficulté. Pourriez-vous reformuler votre réponse ?",
-                    'options': [],
-                    'valid': False,
-                    'should_proceed': False
-                }
+                    # Obtenir la prochaine question
+                    next_field = self.info_collector.get_current_field(collected_info)
+                    if next_field:
+                        next_question = self.info_collector.get_field_question(next_field, collected_info)
+                        return {
+                            'type': 'text',
+                            'content': next_question,
+                            'options': self.info_collector.get_field_options(next_field),
+                            'valid': True,
+                            'should_proceed': True
+                        }
+                    else:
+                        # Toutes les informations sont collectées
+                        return {
+                            'type': 'text',
+                            'content': await self.generate_final_analysis(collected_info),
+                            'options': [],
+                            'valid': True,
+                            'should_proceed': True
+                        }
+                else:
+                    return {
+                        'type': 'text',
+                        'content': error_msg,
+                        'options': field_info.get('options', []),
+                        'valid': False,
+                        'should_proceed': False
+                    }
+                    
+        except Exception as e:
+            logging.error(f"Erreur dans process_response: {str(e)}")
+            return {
+                'type': 'text',
+                'content': "Je suis désolée, j'ai rencontré une difficulté. Pourriez-vous reformuler votre réponse ?",
+                'options': [],
+                'valid': False,
+                'should_proceed': False
+            }
 
     async def generate_response(self, message: str, field: str, next_info: dict, collected_info: dict) -> dict:
         try:
@@ -607,33 +612,20 @@ class ChatBot:
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
-
+    
             # Enregistrer la question initiale si première interaction
             if not collected_info.get('initial_query'):
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
                 return {
                     'type': 'text',
-                    'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux répondre à votre question, j'aimerais en savoir un peu plus sur vous. Tout d'abord, quel est votre prénom ?",
+                    'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux répondre à votre question, j'aimerais en savoir un peu plus sur vous. Pour commencer, quel est votre prénom ?",
                     'options': []
                 }
-
+    
             # Déterminer le champ actuel et traiter la réponse
             current_field = self.info_collector.get_current_field(collected_info)
-            response = await self.process_response(question, conversation_id, collected_info, current_field)
-
-            # Si la réponse est valide et qu'il faut passer à la suite
-            if response['valid'] and response['should_proceed']:
-                # Vérifier si toutes les informations sont collectées
-                if self.info_collector.is_collection_complete(collected_info):
-                    final_analysis = await self.generate_final_analysis(collected_info)
-                    return {
-                        'type': 'text',
-                        'content': final_analysis,
-                        'options': []
-                    }
-
-            return response
-
+            return await self.process_response(question, conversation_id, collected_info, current_field)
+    
         except Exception as e:
             logging.error(f"Erreur dans repondre_question: {str(e)}")
             return {
