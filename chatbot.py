@@ -620,8 +620,7 @@ class ChatBot:
                 'options': []
             }
 
-    def generate_unique_id() -> str:
-        """Génère un identifiant unique pour une conversation"""
+    def generate_unique_id(self) -> str:  # Ajout du 'self'
         timestamp = int(datetime.utcnow().timestamp() * 1000)
         random_suffix = ''.join(random.choices('0123456789abcdef', k=8))
         return f"conv_{timestamp}_{random_suffix}"
@@ -870,7 +869,7 @@ class ChatBot:
                     "created_at": datetime.utcnow().isoformat()
                 }
                 
-                await self.supabase.table('preconisations').insert(preconisation_data).execute()
+                self.supabase.table('preconisations').insert(preconisation_data).execute()
                 
         except Exception as e:
             logging.error(f"Erreur lors de la sauvegarde des préconisations: {str(e)}")
@@ -911,13 +910,13 @@ class ChatBot:
         """
         try:
             # Récupérer toutes les informations du lead
-            lead_data = await self.supabase.table('leads')\
+            lead_data = self.supabase.table('leads')\
                 .select('*')\
                 .eq('id', lead_id)\
                 .single()\
                 .execute()
     
-            patrimoine_data = await self.supabase.table('patrimoine_info')\
+            patrimoine_data = self.supabase.table('patrimoine_info')\
                 .select('*')\
                 .eq('lead_id', lead_id)\
                 .single()\
@@ -979,7 +978,7 @@ class ChatBot:
                     base_score += 20
     
             # Mise à jour du score dans la base de données
-            await self.supabase.table('leads')\
+            self.supabase.table('leads')\
                 .update({'score': base_score, 'updated_at': datetime.utcnow().isoformat()})\
                 .eq('id', lead_id)\
                 .execute()
@@ -993,14 +992,14 @@ class ChatBot:
         Détermine si un suivi est nécessaire en fonction du score et des informations
         """
         try:
-            lead_data = await self.supabase.table('leads')\
+            lead_data = self.supabase.table('leads')\
                 .select('score')\
                 .eq('id', lead_id)\
                 .single()\
                 .execute()
                 
             if lead_data.data and lead_data.data.get('score', 0) >= 70:
-                await self.supabase.table('conversations')\
+                self.supabase.table('conversations')\
                     .update({
                         'needs_followup': True,
                         'updated_at': datetime.utcnow().isoformat()
@@ -1058,7 +1057,7 @@ class ChatBot:
             # Mettre à jour le statut de la conversation
             conversation = self.conv_storage.get_conversation(conversation_id)
             if conversation.get('lead_id'):
-                await self.supabase.table('conversations').update({
+                self.supabase.table('conversations').update({
                     'status': 'terminée',
                     'updated_at': datetime.utcnow().isoformat()
                 }).eq('conversation_id', conversation_id).execute()
