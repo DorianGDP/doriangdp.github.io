@@ -917,7 +917,7 @@ class ChatBot:
                 return
     
             lead_data = lead_response.data[0]
-            patrimoine_data = patrimoine_response.data[0] if patrimoine_response.data else None
+            patrimoine_data = patrimoine_response.data[0] if patrimoine_response.data else {}
     
             # Calcul du score de base
             base_score = 0
@@ -934,45 +934,46 @@ class ChatBot:
                     base_score += 10
     
             # Score pour les informations patrimoniales
-            if patrimoine_data:
-                # Score basé sur le patrimoine
-                patrimoine_total = patrimoine_data.get('patrimoine_total', 0)
-                if patrimoine_total > 1000000:
-                    base_score += 50
-                elif patrimoine_total > 500000:
-                    base_score += 30
-                elif patrimoine_total > 100000:
-                    base_score += 20
-                elif patrimoine_total > 0:
-                    base_score += 10
+            patrimoine_total = int(patrimoine_data.get('patrimoine_total', 0) or 0)
+            revenus = int(patrimoine_data.get('revenus_annuels', 0) or 0)
+            age = int(patrimoine_data.get('age', 0) or 0)
+            objectifs = patrimoine_data.get('objectifs', []) or []
+            profession = patrimoine_data.get('profession', '')
     
-                # Score basé sur les revenus
-                revenus = patrimoine_data.get('revenus_annuels', 0)
-                if revenus > 100000:
-                    base_score += 30
-                elif revenus > 50000:
-                    base_score += 20
-                elif revenus > 30000:
-                    base_score += 10
+            # Score basé sur le patrimoine
+            if patrimoine_total > 1000000:
+                base_score += 50
+            elif patrimoine_total > 500000:
+                base_score += 30
+            elif patrimoine_total > 100000:
+                base_score += 20
+            elif patrimoine_total > 0:
+                base_score += 10
     
-                # Score basé sur les objectifs définis
-                objectifs = patrimoine_data.get('objectifs', [])
-                if objectifs:
-                    base_score += len(objectifs) * 5
+            # Score basé sur les revenus
+            if revenus > 100000:
+                base_score += 30
+            elif revenus > 50000:
+                base_score += 20
+            elif revenus > 30000:
+                base_score += 10
     
-                # Score basé sur l'âge
-                age = patrimoine_data.get('age', 0)
-                if 35 <= age <= 65:
-                    base_score += 15
+            # Score basé sur les objectifs
+            if objectifs and isinstance(objectifs, list):
+                base_score += len(objectifs) * 5
     
-                # Score basé sur la profession
-                professions_privilegiees = [
-                    "Chef d'entreprise",
-                    "Profession libérale",
-                    "Cadre supérieur"
-                ]
-                if patrimoine_data.get('profession') in professions_privilegiees:
-                    base_score += 20
+            # Score basé sur l'âge
+            if 35 <= age <= 65:
+                base_score += 15
+    
+            # Score basé sur la profession
+            professions_privilegiees = [
+                "Chef d'entreprise",
+                "Profession libérale",
+                "Cadre supérieur"
+            ]
+            if profession in professions_privilegiees:
+                base_score += 20
     
             # Mise à jour du score dans la base de données
             self.supabase.table('leads')\
@@ -980,9 +981,12 @@ class ChatBot:
                 .eq('id', lead_id)\
                 .execute()
     
+            logging.info(f"Score mis à jour pour le lead {lead_id}: {base_score}")
+    
         except Exception as e:
             logging.error(f"Erreur lors de la mise à jour du score: {str(e)}")
-            raise
+            # Ne pas relever l'erreur pour ne pas bloquer la conversation
+            pass
     
     async def check_need_followup(self, lead_id: str) -> bool:
         """Détermine si un suivi est nécessaire en fonction du score"""
