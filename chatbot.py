@@ -360,7 +360,6 @@ class ChatBot:
         self.supabase = create_client(supabase_url, supabase_key)
 
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
-        """Traite la réponse de l'utilisateur"""
         try:
             field_info = self.info_collector.get_field_info(current_field)
             if not field_info:
@@ -377,6 +376,19 @@ class ChatBot:
                 current_field, user_message, collected_info
             )
     
+            # Déterminer la question suivante si la réponse est valide
+            next_field = None
+            next_question = None
+            if is_valid:
+                self.conv_storage.update_info(conversation_id, {current_field: validated_value})
+                await self.update_database(conversation_id, {current_field: validated_value})
+                
+                # Mettre à jour collected_info pour la prochaine question
+                collected_info[current_field] = validated_value
+                next_field = self.info_collector.get_current_field(collected_info)
+                if next_field:
+                    next_question = self.info_collector.get_field_question(next_field, collected_info)
+    
             # Générer une réponse contextuelle avec GPT
             system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
             
@@ -384,6 +396,7 @@ class ChatBot:
             - Question initiale du client: {collected_info.get('initial_query', '')}
             - Champ actuel: {current_field}
             - La réponse est valide: {is_valid}
+            - Prochaine question: {next_question if next_field else "Analyse finale"}
             - Informations déjà collectées: {json.dumps(collected_info, indent=2)}
             
             OBJECTIF:
@@ -397,14 +410,11 @@ class ChatBot:
             2. Si la réponse est valide:
                - Faire un bref retour positif
                - Utiliser le prénom si disponible
-               - Introduire la question suivante de manière fluide
+               - Poser la question suivante exactement comme indiquée
             3. Si la réponse est invalide:
-               - Ne pas être trop formel ou robotique
                - Expliquer simplement pourquoi la réponse ne convient pas
-               - Redemander l'information de manière plus précise
-               - Donner des exemples si pertinent
-            4. Adapter le niveau de langage au profil du client
-            5. Éviter les formules répétitives"""
+               - Redemander l'information de manière précise
+               - Donner un exemple du format attendu"""
     
             user_prompt = f"""Message du client: '{user_message}'
             Réponse valide: {is_valid}
@@ -413,7 +423,6 @@ class ChatBot:
             Type de donnée attendue: {field_info.get('type')}
             Options si choix: {json.dumps(field_info.get('options', []), ensure_ascii=False)}"""
     
-            # Correction de l'appel à l'API OpenAI
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -422,14 +431,9 @@ class ChatBot:
                 ],
                 temperature=0.7
             )
-            # Attendre la réponse de manière synchrone
             gpt_response = response.choices[0].message.content
     
             if is_valid:
-                # Mettre à jour les informations collectées
-                self.conv_storage.update_info(conversation_id, {current_field: validated_value})
-                await self.update_database(conversation_id, {current_field: validated_value})
-    
                 # Vérifier si toutes les informations sont collectées
                 if self.info_collector.is_collection_complete(collected_info):
                     final_analysis = await self.generate_final_analysis(collected_info)
@@ -444,12 +448,11 @@ class ChatBot:
                 return {
                     'type': 'text',
                     'content': gpt_response,
-                    'options': self.info_collector.get_field_options(current_field),
+                    'options': self.info_collector.get_field_options(next_field) if next_field else [],
                     'valid': True,
                     'should_proceed': True
                 }
             else:
-                # Si la réponse n'est pas valide, on reste sur le même champ
                 return {
                     'type': 'text',
                     'content': gpt_response,
