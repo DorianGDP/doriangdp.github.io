@@ -401,36 +401,10 @@ class ChatBot:
                 current_field, user_message, collected_info
             )
     
-            # Générer une réponse contextuelle avec GPT
-            system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
-            
-            CONTEXTE:
-            - Question initiale du client: {collected_info.get('initial_query', '')}
-            - Champ actuel: {current_field}
-            - La réponse est valide: {is_valid}
-            - Informations déjà collectées: {json.dumps(collected_info, indent=2)}
-            
-            OBJECTIF:
-            {{
-                "réponse_valide": "Confirmer la compréhension et poser naturellement la question suivante",
-                "réponse_invalide": "Expliquer pourquoi la réponse ne convient pas et redemander l'information"
-            }}
-            
-            RÈGLES:
-            1. Rester naturel et empathique
-            2. Si la réponse est valide:
-               - Faire un bref retour positif
-               - Utiliser le prénom si disponible
-               - Poser la prochaine question de manière naturelle
-            3. Si la réponse est invalide:
-               - Expliquer poliment pourquoi la réponse ne convient pas
-               - Reformuler la question de manière plus claire
-               - Proposer des exemples si nécessaire"""
-    
             if is_valid:
                 # Mettre à jour les informations collectées
                 self.conv_storage.update_info(conversation_id, {current_field: validated_value})
-                self.update_database(conversation_id, {current_field: validated_value})  
+                self.update_database(conversation_id, {current_field: validated_value})
                 
                 # Mise à jour du contexte pour la prochaine question
                 updated_info = collected_info.copy()
@@ -440,17 +414,37 @@ class ChatBot:
                 next_field = self.info_collector.get_current_field(updated_info)
                 if next_field:
                     next_question = self.info_collector.get_field_question(next_field, updated_info)
-                    # Ajouter la prochaine question au contexte
-                    system_prompt += f"\n\nPROCHAINE QUESTION À POSER: {next_question}"
+                else:
+                    next_question = None
     
-            # Ajout du contexte spécifique au champ
+            # Générer une réponse contextuelle avec GPT
+            system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
+            
+            CONTEXTE:
+            - Question initiale du client: {collected_info.get('initial_query', '')}
+            - Prénom: {collected_info.get('first_name', '')}
+            - Champ actuel: {current_field}
+            - Dernière réponse valide: {is_valid}
+            - Prochaine question: {next_question if 'next_question' in locals() else ''}
+            
+            RÈGLES:
+            1. Si la réponse est valide:
+               - Faire un bref retour positif sans répéter la réponse entière
+               - Poser directement la question suivante de manière naturelle
+               - Ne pas répéter les formules de politesse à chaque fois
+               - Éviter "Merci pour votre réponse" et "C'est noté"
+            2. Si la réponse est invalide:
+               - Expliquer clairement pourquoi la réponse ne convient pas
+               - Ne pas s'excuser
+               - Donner un exemple de réponse valide
+            3. Jamais plus d'une question à la fois
+            4. Éviter les répétitions de formules"""
+    
             user_prompt = f"""Message du client: '{user_message}'
             Réponse valide: {is_valid}
-            Message d'erreur si invalide: {error_msg}
-            Champ actuel: {field_info.get('field')}
-            Type de donnée attendue: {field_info.get('type')}
-            Options disponibles: {json.dumps(field_info.get('options', []), ensure_ascii=False)}
-            Question actuelle: {self.info_collector.get_field_question(current_field, collected_info)}"""
+            Erreur si invalide: {error_msg}
+            Type de réponse attendu: {field_info.get('type')}
+            Options si choix: {json.dumps(field_info.get('options', []), ensure_ascii=False)}"""
     
             response = self.client.chat.completions.create(
                 model="gpt-4o",
@@ -464,6 +458,7 @@ class ChatBot:
             gpt_response = response.choices[0].message.content
     
             if is_valid:
+                # Vérifier si toutes les informations sont collectées
                 if self.info_collector.is_collection_complete(updated_info):
                     final_analysis = await self.generate_final_analysis(updated_info)
                     return {
@@ -474,7 +469,6 @@ class ChatBot:
                         'should_proceed': True
                     }
     
-                next_field = self.info_collector.get_current_field(updated_info)
                 return {
                     'type': 'text',
                     'content': gpt_response,
