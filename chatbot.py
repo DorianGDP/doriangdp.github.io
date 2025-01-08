@@ -527,6 +527,72 @@ class ChatBot:
             logging.error(f"Erreur dans generate_error_response: {str(e)}")
             return error_msg
     
+    async def analyze_response_relevance(self, user_message: str, current_field: str, field_info: dict) -> Tuple[bool, str]:
+        """
+        Analyse si la réponse de l'utilisateur est pertinente pour la question posée
+        Retourne: (est_pertinent, message_explication)
+        """
+        try:
+            prompt = f"""Analyse si cette réponse est pertinente par rapport à la question posée.
+    
+            CONTEXTE:
+            - Champ demandé: {current_field}
+            - Question posée: {field_info['question'] if isinstance(field_info['question'], str) else 'Question dynamique'}
+            - Réponse utilisateur: {user_message}
+    
+            CRITÈRES D'ANALYSE:
+            1. La réponse aborde-t-elle le sujet demandé ?
+            2. La réponse contient-elle l'information recherchée ?
+            3. L'utilisateur essaie-t-il d'éviter la question ?
+    
+            Format de réponse attendu: JSON avec
+            {
+                "is_relevant": true/false,
+                "explanation": "Explication naturelle de pourquoi l'information est importante",
+                "detected_topic": "sujet détecté dans la réponse"
+            }"""
+    
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Tu es un assistant spécialisé dans l'analyse de pertinence."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+    
+            analysis = json.loads(response.choices[0].message.content)
+            
+            if not analysis['is_relevant']:
+                explanation_prompt = f"""Génère une réponse empathique pour expliquer pourquoi nous avons besoin de cette information.
+    
+                CONTEXTE:
+                - Information demandée: {field_info['field']}
+                - Réponse hors sujet: {user_message}
+    
+                CONSIGNES:
+                1. Être compréhensif et empathique
+                2. Expliquer la valeur/utilité de l'information demandée
+                3. Reformuler la question initiale
+                4. Garder un ton professionnel et rassurant"""
+    
+                explanation_response = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "Tu es Emma, conseillère patrimoniale empathique et professionnelle."},
+                        {"role": "user", "content": explanation_prompt}
+                    ],
+                    temperature=0.7
+                )
+    
+                return False, explanation_response.choices[0].message.content
+    
+            return True, ""
+    
+        except Exception as e:
+            logging.error(f"Erreur dans analyze_response_relevance: {str(e)}")
+            return True, ""  # En cas d'erreur, on considère la réponse comme pertinente
+
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
         try:
             field_info = self.info_collector.get_field_info(current_field)
@@ -539,7 +605,21 @@ class ChatBot:
                     'should_proceed': False
                 }
     
-            # Validation de la réponse
+            # Analyser la pertinence de la réponse
+            is_relevant, explanation = await self.analyze_response_relevance(
+                user_message, current_field, field_info
+            )
+    
+            if not is_relevant:
+                return {
+                    'type': 'text',
+                    'content': explanation,
+                    'options': field_info.get('options', []),
+                    'valid': False,
+                    'should_proceed': False
+                }
+    
+            # Si la réponse est pertinente, continuer avec la validation normale
             is_valid, validated_value, error_msg = self.info_collector.validate_response(
                 current_field, user_message, collected_info
             )
@@ -554,18 +634,13 @@ class ChatBot:
             )
     
             if is_valid:
-                # Mise à jour des informations
                 self.conv_storage.update_info(conversation_id, {current_field: validated_value})
                 await self.update_database(conversation_id, {current_field: validated_value})
-                
-                # Mise à jour du score
                 await self.update_lead_score(conversation_id)
-                
-                # Mise à jour du contexte
+    
                 updated_info = collected_info.copy()
                 updated_info[current_field] = validated_value
     
-                # Vérifier si toutes les informations sont collectées
                 if self.info_collector.is_collection_complete(updated_info):
                     final_analysis = await self.generate_final_analysis(updated_info, conversation_id)
                     await self.save_conversation_message(
@@ -582,7 +657,6 @@ class ChatBot:
                         'should_proceed': True
                     }
     
-                # Sinon, continuer avec la prochaine question
                 next_field = self.info_collector.get_current_field(updated_info)
                 if next_field:
                     next_question = self.info_collector.get_field_question(next_field, updated_info)
