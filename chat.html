@@ -122,17 +122,32 @@
             return `conv_${timestamp}_${randomStr}`;
         }
 
-        // Gestion de l'ID de conversation
-        function getConversationId() {
-            let id = localStorage.getItem('chatConversationId');
-            if (!id) {
-                id = generateUniqueId();
-                localStorage.setItem('chatConversationId', id);
-            }
-            return id;
-        }
+        function resetConversation() {
+            // Générer un nouvel ID de conversation
+            const newId = generateUniqueId();
+            
+            // Sauvegarder le nouvel ID
+            localStorage.setItem('chatConversationId', newId);
+            conversationId = newId;
+            
+            // Effacer les messages affichés
+            messagesContainer.innerHTML = '';
+            
+            // Réinitialiser l'interface
+            userInput.disabled = false;
+            sendButton.disabled = false;
+            userInput.value = '';
+            
+            // Réafficher le message d'accueil
+            appendMessage('bot', 
+                "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. " +
+                "Je suis là pour répondre à vos questions et vous accompagner dans vos projets patrimoniaux. " +
+                "Comment puis-je vous aider aujourd'hui ?"
+            );
 
-        let conversationId = getConversationId();
+            // Focus sur l'input
+            userInput.focus();
+        }
 
         // Indicateur de frappe
         function createTypingIndicator() {
@@ -170,10 +185,8 @@
                     : 'message-bot text-gray-800'
             }`;
             
-            // Rendu du contenu avec support du retour à la ligne
             contentDiv.textContent = String(content);
             
-            // Ajouter les boutons d'options si présents
             if (options && options.length > 0) {
                 const optionsDiv = document.createElement('div');
                 optionsDiv.className = 'mt-3 space-y-2';
@@ -184,7 +197,6 @@
                     button.textContent = option;
                     button.onclick = () => {
                         sendMessage(option);
-                        // Désactiver tous les boutons après la sélection
                         optionsDiv.querySelectorAll('button').forEach(btn => {
                             btn.disabled = true;
                             btn.className += ' opacity-50 cursor-not-allowed';
@@ -200,7 +212,6 @@
             messageDiv.appendChild(innerDiv);
             messagesContainer.appendChild(messageDiv);
             
-            // Faire défiler jusqu'au dernier message
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
 
@@ -214,8 +225,6 @@
         
             try {
                 appendMessage('user', messageText);
-
-                // Ajouter l'indicateur de frappe
                 const typingIndicator = createTypingIndicator();
                 messagesContainer.appendChild(typingIndicator);
         
@@ -232,7 +241,6 @@
                     })
                 });
                 
-                // Retirer l'indicateur de frappe
                 typingIndicator.remove();
                 
                 if (!response.ok) {
@@ -264,16 +272,18 @@
             }
         }
 
-        function initializeChat() {
-            // Message de bienvenue
-            appendMessage('bot', "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Je suis là pour répondre à vos questions et vous accompagner dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
-            
-            // Focus sur l'input
-            userInput.focus();
-        }
-
         // Event Listeners
-        document.addEventListener('DOMContentLoaded', initializeChat);
+        document.addEventListener('DOMContentLoaded', () => {
+            // Réinitialiser la conversation au chargement initial
+            resetConversation();
+        });
+
+        window.addEventListener('message', (event) => {
+            if (event.data === 'chatOpened') {
+                // Réinitialiser la conversation quand le chat est ouvert
+                resetConversation();
+            }
+        });
 
         sendButton.addEventListener('click', () => sendMessage());
         
@@ -281,13 +291,6 @@
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
-            }
-        });
-
-        // Gérer la réinitialisation de la conversation
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'chatConversationId') {
-                conversationId = e.newValue || generateUniqueId();
             }
         });
     </script>
