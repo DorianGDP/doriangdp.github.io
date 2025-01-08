@@ -872,7 +872,6 @@ class ChatBot:
     async def update_database(self, conversation_id: str, info: dict):
         """Met à jour les informations de la conversation dans la base de données"""
         try:
-            # Préparer les données à mettre à jour
             update_data = {}
             
             # Mapping des champs
@@ -897,18 +896,16 @@ class ChatBot:
     
             # Traitement spécial pour les objectifs (champ array)
             if 'objectifs' in info:
-                # Si c'est déjà une liste
                 if isinstance(info['objectifs'], list):
                     update_data['objectifs'] = info['objectifs']
-                # Si c'est une chaîne avec des virgules
                 elif isinstance(info['objectifs'], str) and ',' in info['objectifs']:
                     update_data['objectifs'] = [obj.strip() for obj in info['objectifs'].split(',')]
-                # Si c'est une chaîne simple
                 elif isinstance(info['objectifs'], str):
                     update_data['objectifs'] = [info['objectifs'].strip()]
     
             # Mettre à jour la conversation
             if update_data:
+                # Plus de await ici
                 self.supabase.table('conversations')\
                     .update(update_data)\
                     .eq('conversation_id', conversation_id)\
@@ -917,6 +914,7 @@ class ChatBot:
         except Exception as e:
             logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
             raise
+
 
     async def save_recommendations(self, conversation_id: str, recommendations: List[str]):
         """Sauvegarde les préconisations dans la conversation"""
