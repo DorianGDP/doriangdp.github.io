@@ -1023,24 +1023,32 @@ class ChatBot:
     async def generate_final_analysis(self, collected_info: dict, conversation_id: str) -> str:
         """Génère l'analyse finale et les recommandations"""
         try:
-            prompt = f"""En tant que conseillère en gestion de patrimoine, fais une analyse personnalisée:
-    
-            PROFIL CLIENT:
-            {json.dumps(collected_info, indent=2)}
-    
-            STRUCTURE DE LA RÉPONSE:
-            1. Remerciement personnalisé avec le prénom
-            2. Bref résumé de la situation patrimoniale
-            3. Réponse précise à la question initiale: {collected_info.get('initial_query')}
-            4. 2-3 recommandations personnalisées
-            5. Proposition de rendez-vous pour approfondir
-    
-            CONSIGNES:
-            - Sois précise et professionnelle
-            - Montre que tu as bien compris leurs enjeux
-            - Donne des conseils concrets mais garde des éléments pour le RDV
-            - Présente les recommandations de manière claire et structurée
-            - Termine par une incitation à l'action claire"""
+            prompt = f"""En tant que conseillère en gestion de patrimoine, réalise une analyse personnalisée et naturelle.
+            
+                        PROFIL CLIENT:
+                        {json.dumps(collected_info, indent=2)}
+            
+                        QUESTION INITIALE:
+                        {collected_info.get('initial_query')}
+            
+                        CONSIGNES DE STYLE:
+                        - Adopte un ton chaleureux et professionnel
+                        - Évite les sections numérotées et les titres
+                        - Utilise des transitions naturelles entre les sujets
+                        - Garde un style conversationnel tout en restant professionnel
+                        - Intègre les recommandations de manière fluide dans le texte
+                        - Fais référence aux informations personnelles du client pour personnaliser le message
+            
+                        POINTS À COUVRIR:
+                        1. Un accueil personnalisé qui montre que tu as compris leur situation
+                        2. Une analyse concise de leur situation actuelle
+                        3. Une réponse ciblée à leur question initiale
+                        4. 2-3 recommandations pertinentes intégrées naturellement
+                        5. Une conclusion qui :
+                           - Souligne l'importance d'un accompagnement personnalisé
+                           - Justifie pourquoi un rendez-vous avec un conseiller serait bénéfique
+                           - Mentionne qu'ils seront recontactés via leurs coordonnées fournies
+                           - Se termine sur une note positive et engageante"""
     
             response = self.client.chat.completions.create(
                 model="gpt-4o",
