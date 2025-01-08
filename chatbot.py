@@ -425,7 +425,7 @@ class ChatBot:
     async def generate_gpt_response(self, user_message: str, collected_info: dict, is_valid: bool, next_question: str = None) -> str:
         """Génère une réponse GPT contextuelle"""
         try:
-            system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine professionnelle et empathique.
+            system_prompt = f"""Tu es Paty, un assistant en gestion de patrimoine professionnelle et empathique.
             
             CONTEXTE:
             - Question initiale du client: {collected_info.get('initial_query', '')}
@@ -495,7 +495,7 @@ class ChatBot:
     async def generate_error_response(self, user_message: str, field_info: dict, error_msg: str, collected_info: dict) -> str:
         """Génère une réponse pour une erreur de validation"""
         try:
-            system_prompt = f"""Tu es Emma, une conseillère en gestion de patrimoine empathique.
+            system_prompt = f"""Tu es Paty, un assistant en gestion de patrimoine empathique.
             
             CONTEXTE:
             - Prénom du client: {collected_info.get('first_name', '')}
@@ -648,7 +648,7 @@ class ChatBot:
             last_name = collected_info.get('last_name', '')
             initial_query = collected_info.get('initial_query', '')
             
-            system_prompt = """Tu es Emma, conseillère patrimoniale. Réponds de façon concise et naturelle.
+            system_prompt = """Tu es Paty, assistant patrimonial. Réponds de façon concise et naturelle.
             Quelques règles importantes:
             1. Commence toujours par demander le prénom avant le nom
             2. Si tu as le prénom, utilise-le
@@ -1053,7 +1053,7 @@ class ChatBot:
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Tu es Emma, conseillère patrimoniale expérimentée."},
+                    {"role": "system", "content": "Tu es Paty, assistant patrimonial expérimentée."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7
@@ -1169,7 +1169,7 @@ class ChatBot:
                 except Exception as e:
                     logging.warning(f"Impossible de sauvegarder initial_query: {str(e)}")
                 
-                system_prompt = """Tu es Emma, conseillère en gestion de patrimoine. 
+                system_prompt = """Tu es Paty, assistant en gestion de patrimoine. 
                 
                 TÂCHE:
                 - Accueillir le client chaleureusement
@@ -1204,7 +1204,7 @@ class ChatBot:
                     logging.error(f"Erreur lors de la génération de la première réponse: {str(e)}")
                     return {
                         'type': 'text',
-                        'content': "Bonjour ! Je suis Emma, votre conseillère en gestion de patrimoine. Pour mieux vous accompagner dans votre projet, j'aimerais d'abord faire votre connaissance. Quel est votre prénom ?",
+                        'content': "Bonjour ! Je suis Paty, votre assistant en gestion de patrimoine. Pour mieux vous accompagner dans votre projet, j'aimerais d'abord faire votre connaissance. Quel est votre prénom ?",
                         'options': []
                     }
 
