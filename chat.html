@@ -111,163 +111,114 @@
     </footer>
 
     <script>
-        // États et configurations
         const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';
-        const STORAGE_KEY = 'chatConversationId';
-        let conversationId = null;
-        
-        // Interface utilisateur
-        const UI = {
-            elements: {
-                messagesContainer: document.getElementById('chat-messages'),
-                userInput: document.getElementById('user-input'),
-                sendButton: document.getElementById('send-button')
-            },
-        
-            createTypingIndicator() {
-                const typingDiv = document.createElement('div');
-                typingDiv.className = 'message-container message-animation';
-                
-                const innerDiv = document.createElement('div');
-                innerDiv.className = 'flex justify-start';
-                
-                const contentDiv = document.createElement('div');
-                contentDiv.className = 'message-bot typing-indicator';
-                
-                for (let i = 0; i < 3; i++) {
-                    const dot = document.createElement('div');
-                    dot.className = 'typing-dot';
-                    contentDiv.appendChild(dot);
-                }
-                
-                innerDiv.appendChild(contentDiv);
-                typingDiv.appendChild(innerDiv);
-                return typingDiv;
-            },
-        
-            appendMessage(sender, content, options = []) {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = 'message-container message-animation';
-                
-                const innerDiv = document.createElement('div');
-                innerDiv.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
-                
-                const contentDiv = document.createElement('div');
-                contentDiv.className = `p-4 max-w-[80%] whitespace-pre-wrap ${
-                    sender === 'user' 
-                        ? 'message-user text-white' 
-                        : 'message-bot text-gray-800'
-                }`;
-                
-                contentDiv.textContent = String(content);
-                
-                if (options && options.length > 0) {
-                    const optionsDiv = document.createElement('div');
-                    optionsDiv.className = 'mt-3 space-y-2';
-                    
-                    options.forEach(option => {
-                        const button = document.createElement('button');
-                        button.className = 'w-full p-2 text-left hover:bg-cyan-100 rounded-lg border border-cyan-200 transition-colors';
-                        button.textContent = option;
-                        button.onclick = () => {
-                            chatOperations.handleOptionClick(option, optionsDiv);
-                        };
-                        optionsDiv.appendChild(button);
-                    });
-                    
-                    contentDiv.appendChild(optionsDiv);
-                }
-                
-                innerDiv.appendChild(contentDiv);
-                messageDiv.appendChild(innerDiv);
-                this.elements.messagesContainer.appendChild(messageDiv);
-                this.scrollToBottom();
-            },
-        
-            scrollToBottom() {
-                this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
-            },
-        
-            setInputState(disabled, options = false) { // Modifié ici
-                this.elements.userInput.disabled = disabled;
-                this.elements.sendButton.disabled = disabled;
-                
-                // Si on active l'input, on met le focus
-                if (!disabled) {
-                    this.elements.userInput.focus();
-                }
-            },
-        
-            enableInput() { // Nouvelle méthode
-                this.elements.userInput.disabled = false;
-                this.elements.sendButton.disabled = false;
-                this.elements.userInput.focus();
-            },
-        
-            disableInput() {
-                this.elements.userInput.disabled = true;
-                this.elements.sendButton.disabled = true;
-            },
-        
-            disableOptions(optionsDiv) {
-                optionsDiv.querySelectorAll('button').forEach(btn => {
-                    btn.disabled = true;
-                    btn.className += ' opacity-50 cursor-not-allowed';
-                });
-            },
-        
-            clearInput() {
-                this.elements.userInput.value = '';
+        const messagesContainer = document.getElementById('chat-messages');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+
+        function generateUniqueId() {
+            const timestamp = Date.now();
+            const randomStr = Math.random().toString(36).substring(2, 10);
+            return `conv_${timestamp}_${randomStr}`;
+        }
+
+        // Gestion de l'ID de conversation
+        function getConversationId() {
+            let id = localStorage.getItem('chatConversationId');
+            if (!id) {
+                id = generateUniqueId();
+                localStorage.setItem('chatConversationId', id);
             }
-        }; 
-        
-        // Opérations du chat
-        const chatOperations = {
-            initialize() {
-                conversationId = this.generateConversationId();
-                UI.elements.messagesContainer.innerHTML = '';
+            return id;
+        }
+
+        let conversationId = getConversationId();
+
+        // Indicateur de frappe
+        function createTypingIndicator() {
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'message-container message-animation';
+            
+            const innerDiv = document.createElement('div');
+            innerDiv.className = 'flex justify-start';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-bot typing-indicator';
+            
+            for (let i = 0; i < 3; i++) {
+                const dot = document.createElement('div');
+                dot.className = 'typing-dot';
+                contentDiv.appendChild(dot);
+            }
+            
+            innerDiv.appendChild(contentDiv);
+            typingDiv.appendChild(innerDiv);
+            return typingDiv;
+        }
+
+        function appendMessage(sender, content, options = []) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message-container message-animation';
+            
+            const innerDiv = document.createElement('div');
+            innerDiv.className = sender === 'user' ? 'flex justify-end' : 'flex justify-start';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = `p-4 max-w-[80%] whitespace-pre-wrap ${
+                sender === 'user' 
+                    ? 'message-user text-white' 
+                    : 'message-bot text-gray-800'
+            }`;
+            
+            // Rendu du contenu avec support du retour à la ligne
+            contentDiv.textContent = String(content);
+            
+            // Ajouter les boutons d'options si présents
+            if (options && options.length > 0) {
+                const optionsDiv = document.createElement('div');
+                optionsDiv.className = 'mt-3 space-y-2';
                 
-                UI.appendMessage('bot', 
-                    "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. " +
-                    "Je suis là pour répondre à vos questions et vous accompagner dans vos " +
-                    "projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?"
-                );
+                options.forEach(option => {
+                    const button = document.createElement('button');
+                    button.className = 'w-full p-2 text-left hover:bg-cyan-100 rounded-lg border border-cyan-200 transition-colors';
+                    button.textContent = option;
+                    button.onclick = () => {
+                        sendMessage(option);
+                        // Désactiver tous les boutons après la sélection
+                        optionsDiv.querySelectorAll('button').forEach(btn => {
+                            btn.disabled = true;
+                            btn.className += ' opacity-50 cursor-not-allowed';
+                        });
+                    };
+                    optionsDiv.appendChild(button);
+                });
                 
-                UI.enableInput(); // Modifié ici
-                localStorage.setItem(STORAGE_KEY, conversationId);
-            },
+                contentDiv.appendChild(optionsDiv);
+            }
+            
+            innerDiv.appendChild(contentDiv);
+            messageDiv.appendChild(innerDiv);
+            messagesContainer.appendChild(messageDiv);
+            
+            // Faire défiler jusqu'au dernier message
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function sendMessage(message = null) {
+            const messageText = message || userInput.value.trim();
+            if (!messageText) return;
         
-            generateConversationId() {
-                const timestamp = Date.now();
-                const randomStr = Math.random().toString(36).substring(2, 10);
-                return `conv_${timestamp}_${randomStr}`;
-            },
+            userInput.value = '';
+            userInput.disabled = true;
+            sendButton.disabled = true;
         
-            async sendMessage(message = null) {
-                const messageText = message || UI.elements.userInput.value.trim();
-                if (!messageText) return;
+            try {
+                appendMessage('user', messageText);
+
+                // Ajouter l'indicateur de frappe
+                const typingIndicator = createTypingIndicator();
+                messagesContainer.appendChild(typingIndicator);
         
-                UI.clearInput();
-                UI.disableInput(); // Modifié ici
-        
-                try {
-                    UI.appendMessage('user', messageText);
-                    
-                    const typingIndicator = UI.createTypingIndicator();
-                    UI.elements.messagesContainer.appendChild(typingIndicator);
-        
-                    const response = await this.callApi(messageText);
-                    typingIndicator.remove();
-        
-                    this.handleApiResponse(response);
-                } catch (error) {
-                    console.error('Error:', error);
-                    typingIndicator?.remove();
-                    this.handleError();
-                }
-            },
-        
-            async callApi(message) {
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
@@ -276,65 +227,67 @@
                         'Origin': 'https://doriangdp.github.io'
                     },
                     body: JSON.stringify({
-                        question: message,
+                        question: messageText,
                         conversation_id: conversationId
                     })
                 });
-        
-                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-                return response.json();
-            },
-        
-            handleApiResponse(data) {
+                
+                // Retirer l'indicateur de frappe
+                typingIndicator.remove();
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP Error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
                 if (data.conversation_id && data.conversation_id !== conversationId) {
                     conversationId = data.conversation_id;
-                    localStorage.setItem(STORAGE_KEY, conversationId);
+                    localStorage.setItem('chatConversationId', conversationId);
                 }
-        
-                UI.appendMessage('bot', data.content, data.options || []);
                 
-                // Modifié ici : active l'input sauf si on a des options
-                if (!data.options || data.options.length === 0) {
-                    UI.enableInput();
-                }
-            },
+                appendMessage('bot', data.content, data.options || []);
+                
+                const hasOptions = data.options && data.options.length > 0;
+                userInput.disabled = hasOptions;
+                sendButton.disabled = hasOptions;
         
-            handleError() {
-                UI.appendMessage('bot', 
-                    "Désolé, je rencontre un problème technique. " +
-                    "Veuillez réessayer dans quelques instants."
+            } catch (error) {
+                console.error('Error:', error);
+                typingIndicator?.remove();
+                appendMessage('bot', 
+                    "Désolé, je rencontre un problème technique. Veuillez réessayer dans quelques instants."
                 );
-                UI.enableInput(); // Modifié ici
-            },
-        
-            handleOptionClick(option, optionsDiv) {
-                UI.(optionsDiv);
-                UI.enableInput(); // Ajouté ici
-                this.sendMessage(option);
+                
+                userInput.disabled = false;
+                sendButton.disabled = false;
             }
-        };
-        
+        }
+
+        function initializeChat() {
+            // Message de bienvenue
+            appendMessage('bot', "Bonjour ! 👋 Je suis Emma, votre conseillère en gestion de patrimoine. Je suis là pour répondre à vos questions et vous accompagner dans vos projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?");
+            
+            // Focus sur l'input
+            userInput.focus();
+        }
+
         // Event Listeners
-        document.addEventListener('DOMContentLoaded', () => chatOperations.initialize());
+        document.addEventListener('DOMContentLoaded', initializeChat);
+
+        sendButton.addEventListener('click', () => sendMessage());
         
-        UI.elements.sendButton.addEventListener('click', () => chatOperations.sendMessage());
-        
-        UI.elements.userInput.addEventListener('keypress', (e) => {
+        userInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                chatOperations.sendMessage();
+                sendMessage();
             }
         });
-        
-        window.addEventListener('message', (event) => {
-            if (event.data === 'chatOpened') {
-                chatOperations.initialize();
-            }
-        });
-        
+
+        // Gérer la réinitialisation de la conversation
         window.addEventListener('storage', (e) => {
-            if (e.key === STORAGE_KEY) {
-                conversationId = e.newValue || chatOperations.generateConversationId();
+            if (e.key === 'chatConversationId') {
+                conversationId = e.newValue || generateUniqueId();
             }
         });
     </script>
