@@ -545,11 +545,11 @@ class ChatBot:
             2. La réponse contient-elle l'information recherchée ?
             3. L'utilisateur essaie-t-il d'éviter la question ?
     
-            Format de réponse attendu: JSON avec
+            Format de réponse attendu:
             {
-                "is_relevant": true/false,
-                "explanation": "Explication naturelle de pourquoi l'information est importante",
-                "detected_topic": "sujet détecté dans la réponse"
+                "is_relevant": boolean,
+                "explanation": "string expliquant pourquoi l'information est importante",
+                "detected_topic": "string décrivant le sujet détecté"
             }"""
     
             response = self.client.chat.completions.create(
@@ -592,7 +592,7 @@ class ChatBot:
         except Exception as e:
             logging.error(f"Erreur dans analyze_response_relevance: {str(e)}")
             return True, ""  # En cas d'erreur, on considère la réponse comme pertinente
-
+    
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
         try:
             field_info = self.info_collector.get_field_info(current_field)
