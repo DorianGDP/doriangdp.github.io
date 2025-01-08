@@ -561,9 +561,15 @@ class ChatBot:
                 temperature=0.3
             )
     
-            analysis = json.loads(response.choices[0].message.content)
+            try:
+                analysis = json.loads(response.choices[0].message.content)
+            except json.JSONDecodeError as e:
+                logging.error(f"Erreur de parsing JSON: {str(e)}")
+                # En cas d'erreur de parsing, on suppose que la réponse est pertinente
+                # pour ne pas bloquer l'utilisateur
+                return True, ""
             
-            if not analysis['is_relevant']:
+            if not analysis.get('is_relevant', True):
                 explanation_prompt = f"""Génère une réponse empathique pour expliquer pourquoi nous avons besoin de cette information.
     
                 CONTEXTE:
