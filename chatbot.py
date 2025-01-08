@@ -64,13 +64,12 @@ class ConversationStorage:
         return conv.get('info_collected', {})
 
     async def sync_with_database(self, conversation_id: str, supabase_client) -> None:
-        """Synchronise la conversation avec la base de données"""
         try:
             conv_data = await supabase_client.table('conversations')\
                 .select('*')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-
+    
             if conv_data.data:
                 conv = conv_data.data[0]
                 self._conversations[conversation_id] = {
@@ -83,8 +82,9 @@ class ConversationStorage:
                         'email': conv.get('email'),
                         'phone': conv.get('phone'),
                         'profession': conv.get('profession'),
-                        'income': conv.get('revenus_annuels'),
-                        'patrimoine': conv.get('patrimoine_total'),
+                        'income': conv.get('revenus'),  # Mis à jour
+                        'impot_revenu': conv.get('impot_revenu'),  # Nouveau champ
+                        'patrimoine': conv.get('patrimoine'),  # Mis à jour
                         'situation_familiale': conv.get('situation_familiale'),
                         'objectifs': conv.get('objectifs', [])
                     },
@@ -94,7 +94,6 @@ class ConversationStorage:
                 self.reset_conversation(conversation_id)
         except Exception as e:
             logging.error(f"Erreur lors de la synchronisation avec la base de données: {str(e)}")
-            # En cas d'erreur, on réinitialise la conversation
             self.reset_conversation(conversation_id)
 
 class InfoCollector:
@@ -895,7 +894,6 @@ class ChatBot:
             return []
 
     async def update_lead_score(self, conversation_id: str) -> None:
-        """Met à jour le score de la conversation en fonction des informations collectées"""
         try:
             # Récupérer les informations de la conversation
             conv_response = self.supabase.table('conversations')\
@@ -919,40 +917,52 @@ class ChatBot:
             elif conv_data.get('first_name') or conv_data.get('last_name'):
                 base_score += 10
     
-            # Score patrimonial
-            patrimoine_total = int(conv_data.get('patrimoine_total', 0) or 0)
-            revenus = int(conv_data.get('revenus_annuels', 0) or 0)
+            # Score basé sur le patrimoine
+            patrimoine = conv_data.get('patrimoine', '')
+            if "Plus de 2 500 000€" in patrimoine:
+                base_score += 50
+            elif "1 000 000€" in patrimoine:
+                base_score += 40
+            elif "500 000€" in patrimoine:
+                base_score += 30
+            elif "250 000€" in patrimoine:
+                base_score += 20
+            elif "100 000€" in patrimoine:
+                base_score += 10
+    
+            # Score basé sur les revenus
+            revenus = conv_data.get('revenus', '')
+            if "Plus de 250 000€" in revenus:
+                base_score += 30
+            elif "100 000€" in revenus:
+                base_score += 25
+            elif "80 000€" in revenus:
+                base_score += 20
+            elif "60 000€" in revenus:
+                base_score += 15
+            elif "40 000€" in revenus:
+                base_score += 10
+    
+            # Score basé sur l'impôt sur le revenu
+            impot = conv_data.get('impot_revenu', '')
+            if "Plus de 30 000€" in impot:
+                base_score += 20
+            elif "15 000€" in impot:
+                base_score += 15
+            elif "7 500€" in impot:
+                base_score += 10
+    
+            # Autres scores inchangés
             age = int(conv_data.get('age', 0) or 0)
             objectifs = conv_data.get('objectifs', []) or []
             profession = conv_data.get('profession', '')
     
-            # Score basé sur le patrimoine
-            if patrimoine_total > 1000000:
-                base_score += 50
-            elif patrimoine_total > 500000:
-                base_score += 30
-            elif patrimoine_total > 100000:
-                base_score += 20
-            elif patrimoine_total > 0:
-                base_score += 10
-    
-            # Score basé sur les revenus
-            if revenus > 100000:
-                base_score += 30
-            elif revenus > 50000:
-                base_score += 20
-            elif revenus > 30000:
-                base_score += 10
-    
-            # Score basé sur les objectifs
             if objectifs and isinstance(objectifs, list):
                 base_score += len(objectifs) * 5
     
-            # Score basé sur l'âge
             if 35 <= age <= 65:
                 base_score += 15
     
-            # Score basé sur la profession
             professions_privilegiees = [
                 "Chef d'entreprise",
                 "Profession libérale",
@@ -1054,7 +1064,6 @@ class ChatBot:
             return "Je suis désolée, je ne peux pas générer l'analyse complète pour le moment. Un conseiller va vous recontacter rapidement."
 
     async def reset_conversation(self, conversation_id: str) -> None:
-        """Réinitialise complètement une conversation"""
         try:
             # Réinitialiser la mémoire
             self.conv_storage.reset_conversation(conversation_id)
@@ -1070,8 +1079,9 @@ class ChatBot:
                     'email': None,
                     'phone': None,
                     'profession': None,
-                    'revenus_annuels': None,
-                    'patrimoine_total': None,
+                    'revenus': None,  # Mis à jour
+                    'impot_revenu': None,  # Nouveau champ
+                    'patrimoine': None,  # Mis à jour
                     'situation_familiale': None,
                     'objectifs': None,
                     'score': 0,
