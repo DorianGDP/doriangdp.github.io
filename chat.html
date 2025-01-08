@@ -188,12 +188,25 @@
                 this.elements.messagesContainer.scrollTop = this.elements.messagesContainer.scrollHeight;
             },
         
-            setInputState(disabled, options = true) {
-                this.elements.userInput.disabled = disabled || options;
-                this.elements.sendButton.disabled = disabled || options;
-                if (!disabled && !options) {
+            setInputState(disabled, options = false) { // Modifié ici
+                this.elements.userInput.disabled = disabled;
+                this.elements.sendButton.disabled = disabled;
+                
+                // Si on active l'input, on met le focus
+                if (!disabled) {
                     this.elements.userInput.focus();
                 }
+            },
+        
+            enableInput() { // Nouvelle méthode
+                this.elements.userInput.disabled = false;
+                this.elements.sendButton.disabled = false;
+                this.elements.userInput.focus();
+            },
+        
+            disableInput() {
+                this.elements.userInput.disabled = true;
+                this.elements.sendButton.disabled = true;
             },
         
             disableOptions(optionsDiv) {
@@ -206,7 +219,7 @@
             clearInput() {
                 this.elements.userInput.value = '';
             }
-        };
+        }; 
         
         // Opérations du chat
         const chatOperations = {
@@ -220,7 +233,7 @@
                     "projets patrimoniaux. Comment puis-je vous aider aujourd'hui ?"
                 );
                 
-                UI.setInputState(false);
+                UI.enableInput(); // Modifié ici
                 localStorage.setItem(STORAGE_KEY, conversationId);
             },
         
@@ -235,7 +248,7 @@
                 if (!messageText) return;
         
                 UI.clearInput();
-                UI.setInputState(true);
+                UI.disableInput(); // Modifié ici
         
                 try {
                     UI.appendMessage('user', messageText);
@@ -247,7 +260,6 @@
                     typingIndicator.remove();
         
                     this.handleApiResponse(response);
-        
                 } catch (error) {
                     console.error('Error:', error);
                     typingIndicator?.remove();
@@ -280,7 +292,11 @@
                 }
         
                 UI.appendMessage('bot', data.content, data.options || []);
-                UI.setInputState(false, Boolean(data.options?.length));
+                
+                // Modifié ici : active l'input sauf si on a des options
+                if (!data.options || data.options.length === 0) {
+                    UI.enableInput();
+                }
             },
         
             handleError() {
@@ -288,11 +304,12 @@
                     "Désolé, je rencontre un problème technique. " +
                     "Veuillez réessayer dans quelques instants."
                 );
-                UI.setInputState(false);
+                UI.enableInput(); // Modifié ici
             },
         
             handleOptionClick(option, optionsDiv) {
-                UI.disableOptions(optionsDiv);
+                UI.(optionsDiv);
+                UI.enableInput(); // Ajouté ici
                 this.sendMessage(option);
             }
         };
