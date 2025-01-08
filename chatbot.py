@@ -1390,30 +1390,30 @@ class ChatBot:
         except Exception as e:
             logging.error(f"Erreur lors de la gestion de fin de conversation: {str(e)}")
 
-    
+        
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
-            # Vérifier d'abord si la conversation existe et n'est pas expirée
+            # 1. Vérifier l'état de la conversation
             conv_data = await self.supabase.table('conversations')\
-                .select('created_at, status')\
+                .select('created_at, status, messages')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-
+    
             if not conv_data.data:
                 return {
                     'type': 'text',
                     'content': "Désolé, je ne trouve pas votre conversation. Voulez-vous en commencer une nouvelle ?",
                     'options': ["Commencer une nouvelle conversation"]
                 }
-
+    
             conv = conv_data.data[0]
             created_at = datetime.fromisoformat(conv['created_at'])
-
-            # Vérifier si la conversation est expirée
+    
+            # 2. Vérifier l'expiration
             if ConversationManager.is_conversation_expired(created_at):
                 return await ConversationManager.handle_conversation_timeout(self, conversation_id)
-
-            # Vérifier le statut de la conversation
+    
+            # 3. Vérifier le statut
             if conv['status'] == ConversationStatus.TERMINEE.value:
                 return {
                     'type': 'text',
@@ -1426,50 +1426,42 @@ class ChatBot:
                     'content': "Votre dernière conversation n'a pas abouti. Voulez-vous la reprendre ou en commencer une nouvelle ?",
                     'options': ["Reprendre la conversation", "Nouvelle conversation"]
                 }
+    
+            # 4. Récupérer les informations de la conversation une seule fois
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
-
-            # Première interaction
+    
+            # 5. Première interaction
             if not collected_info.get('initial_query'):
-                # Sauvegarder la question initiale en mémoire
+                # Mise à jour en mémoire
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
                 
+                # Mise à jour dans Supabase
                 try:
-                    # Sauvegarder dans Supabase - Correction de la syntaxe
-                    response = self.supabase.table('conversations')\
-                        .upsert({
-                            'conversation_id': conversation_id,
+                    await self.supabase.table('conversations')\
+                        .update({
                             'initial_query': question,
                             'updated_at': datetime.utcnow().isoformat()
-                        }).execute()
+                        })\
+                        .eq('conversation_id', conversation_id)\
+                        .execute()
                     
-                    # Vérifier la réponse
-                    if hasattr(response, 'error') and response.error:
-                        raise Exception(response.error)
-                        
                 except Exception as e:
                     logging.warning(f"Impossible de sauvegarder initial_query: {str(e)}")
                 
-                system_prompt = """Tu es Patty, assistante en gestion de patrimoine. 
-                
-                TÂCHE:
-                - Accueillir le client chaleureusement
-                - Faire un bref commentaire sur sa demande initiale pour montrer que tu l'as comprise
-                - Introduire naturellement la demande du prénom
-                
-                RÈGLES:
-                - Ne pas répéter mot pour mot sa question
-                - Rester concise et professionnelle
-                - Être empathique et naturelle"""
-                
-                user_prompt = f"Question du client: {question}"
-                
                 try:
                     response = self.client.chat.completions.create(
-                        model="gpt-4o",
+                        model="gpt-4",  # Correction du modèle
                         messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
+                            {
+                                "role": "system",
+                                "content": """Tu es Patty, assistante en gestion de patrimoine.
+                                - Accueillir le client chaleureusement
+                                - Faire un bref commentaire sur sa demande initiale
+                                - Introduire naturellement la demande du prénom
+                                - Rester concise et professionnelle"""
+                            },
+                            {"role": "user", "content": f"Question du client: {question}"}
                         ],
                         temperature=0.7,
                         max_tokens=150
@@ -1482,17 +1474,17 @@ class ChatBot:
                     }
                     
                 except Exception as e:
-                    logging.error(f"Erreur lors de la génération de la première réponse: {str(e)}")
+                    logging.error(f"Erreur lors de la génération de la réponse: {str(e)}")
                     return {
                         'type': 'text',
-                        'content': "Bonjour ! Je suis Patty, votre assistante en gestion de patrimoine. Pour mieux vous accompagner dans votre projet, j'aimerais d'abord faire votre connaissance. Quel est votre prénom ?",
+                        'content': "Bonjour ! Je suis Patty, votre assistante en gestion de patrimoine. Comment puis-je vous aider ?",
                         'options': []
                     }
-
-            # Pour les interactions suivantes
+    
+            # 6. Pour les interactions suivantes
             current_field = self.info_collector.get_current_field(collected_info)
             return await self.process_response(question, conversation_id, collected_info, current_field)
-
+    
         except Exception as e:
             logging.error(f"Erreur dans repondre_question: {str(e)}")
             return {
