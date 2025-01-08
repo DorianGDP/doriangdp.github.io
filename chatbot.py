@@ -808,14 +808,25 @@ class ChatBot:
                 'income': 'revenus',
                 'impot_revenu': 'impot_revenu',
                 'patrimoine': 'patrimoine',
-                'situation_familiale': 'situation_familiale',
-                'objectifs': 'objectifs'
+                'situation_familiale': 'situation_familiale'
             }
     
-            # Ajouter directement les valeurs qualitatives
+            # Ajouter directement les valeurs qualitatives pour les champs simples
             for source_field, target_field in field_mappings.items():
                 if source_field in info and info[source_field]:
                     update_data[target_field] = info[source_field]
+    
+            # Traitement spécial pour les objectifs (champ array)
+            if 'objectifs' in info:
+                # Si c'est déjà une liste
+                if isinstance(info['objectifs'], list):
+                    update_data['objectifs'] = info['objectifs']
+                # Si c'est une chaîne avec des virgules
+                elif isinstance(info['objectifs'], str) and ',' in info['objectifs']:
+                    update_data['objectifs'] = [obj.strip() for obj in info['objectifs'].split(',')]
+                # Si c'est une chaîne simple
+                elif isinstance(info['objectifs'], str):
+                    update_data['objectifs'] = [info['objectifs'].strip()]
     
             # Mettre à jour la conversation
             if update_data:
@@ -827,7 +838,6 @@ class ChatBot:
         except Exception as e:
             logging.error(f"Erreur de mise à jour de la base de données: {str(e)}")
             raise
-
 
     async def save_recommendations(self, conversation_id: str, recommendations: List[str]):
         """Sauvegarde les préconisations dans la conversation"""
