@@ -2,7 +2,7 @@ from openai import OpenAI
 from supabase import create_client
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, Dict, Any, Tuple, List, Callable
 import asyncio
