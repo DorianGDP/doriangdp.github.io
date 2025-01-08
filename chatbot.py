@@ -1143,6 +1143,100 @@ class ChatBot:
             logging.error(f"Erreur lors de l'initialisation de la session: {str(e)}")
             return self.generate_unique_id()
 
+    async def analyze_conversation_for_advisor(self, conversation_id: str) -> List[str]:
+        """Analyse la conversation complète pour extraire des informations pertinentes pour le conseiller"""
+        try:
+            # Récupérer la conversation
+            conv_data = await self.supabase.table('conversations')\
+                .select('*')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+            
+            if not conv_data.data:
+                return []
+
+            conversation = conv_data.data[0]
+            messages = conversation.get('messages', [])
+            
+            prompt = f"""Analyste tous les messages de cette conversation entre un prospect et le chatbot.
+            
+            CONTEXTE:
+            Messages: {json.dumps(messages)}
+            Informations déjà collectées:
+            - Prénom: {conversation.get('first_name')}
+            - Nom: {conversation.get('last_name')}
+            - Âge: {conversation.get('age')}
+            - Email: {conversation.get('email')}
+            - Téléphone: {conversation.get('phone')}
+            - Profession: {conversation.get('profession')}
+            - Revenus: {conversation.get('revenus')}
+            - Impôt sur le revenu: {conversation.get('impot_revenu')}
+            - Patrimoine: {conversation.get('patrimoine')}
+            - Situation familiale: {conversation.get('situation_familiale')}
+            - Objectifs: {conversation.get('objectifs')}
+
+            TÂCHE:
+            1. Analyse tous les messages pour trouver des informations supplémentaires intéressantes non capturées par les champs standards
+            2. Identifie les signaux d'intérêt ou d'urgence dans la demande
+            3. Repère les mentions de projets spécifiques ou de timing
+            4. Note tout détail sur la situation familiale élargie ou professionnelle
+            5. Capture les préoccupations ou inquiétudes exprimées
+
+            FORMAT DE RÉPONSE:
+            - Liste de points clés pertinents pour le conseiller
+            - Chaque point doit être concis et actionnable
+            - Ne pas répéter les informations déjà dans les champs standards
+            - Inclure uniquement les informations vraiment utiles au conseiller"""
+
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Tu es un analyste expert en gestion de patrimoine."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3
+            )
+
+            analysis = [
+                point.strip()
+                for point in response.choices[0].message.content.split('\n')
+                if point.strip() and not point.startswith(('•', '-', '*', '1.', '2.', '3.'))
+            ]
+
+            # Sauvegarder l'analyse dans un nouveau champ 'advisor_notes'
+            await self.supabase.table('conversations')\
+                .update({
+                    'advisor_notes': analysis,
+                    'updated_at': datetime.utcnow().isoformat()
+                })\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+
+            return analysis
+
+        except Exception as e:
+            logging.error(f"Erreur lors de l'analyse pour le conseiller: {str(e)}")
+            return []
+
+    async def handle_conversation_end(self, conversation_id: str):
+        """Gère la fin d'une conversation"""
+        try:
+            # Générer l'analyse pour le conseiller
+            await self.analyze_conversation_for_advisor(conversation_id)
+            
+            # Mettre à jour le statut
+            await self.supabase.table('conversations')\
+                .update({
+                    'status': 'terminée',
+                    'updated_at': datetime.utcnow().isoformat()
+                })\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+
+        except Exception as e:
+            logging.error(f"Erreur lors de la gestion de fin de conversation: {str(e)}")
+
+    
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
             conversation = self.conv_storage.get_conversation(conversation_id)
