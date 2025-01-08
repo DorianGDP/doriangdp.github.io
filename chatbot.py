@@ -1146,20 +1146,6 @@ class ChatBot:
                 await self.save_recommendations(conversation_id, recommendations)
     
             # Mettre à jour le statut de la conversation
-            self.supabase.table('conversations')\
-                .update({
-                    'status': 'terminée',
-                    'updated_at': datetime.utcnow().isoformat()
-                })\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-    
-            return gpt_response
-
-            # Génération de l'analyse comme avant
-            analysis = await self._generate_analysis(collected_info)
-            
-            # Mise à jour du statut
             await self.supabase.table('conversations')\
                 .update({
                     'status': ConversationStatus.TERMINEE.value,
@@ -1168,8 +1154,11 @@ class ChatBot:
                 })\
                 .eq('conversation_id', conversation_id)\
                 .execute()
+    
+            # Déclencher l'analyse pour le conseiller
+            await self.handle_conversation_end(conversation_id)
             
-            return analysis
+            return gpt_response
     
         except Exception as e:
             logging.error(f"Erreur dans generate_final_analysis: {str(e)}")
@@ -1311,22 +1300,93 @@ class ChatBot:
         except Exception as e:
             logging.error(f"Erreur lors de l'analyse pour le conseiller: {str(e)}")
             return []
-
+    
+    async def check_conversation_timeout(self, conversation_id: str) -> bool:
+        """Vérifie si une conversation a dépassé la durée limite"""
+        try:
+            conv_data = await self.supabase.table('conversations')\
+                .select('created_at, status')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+    
+            if not conv_data.data:
+                return True
+    
+            created_at = datetime.fromisoformat(conv_data.data[0]['created_at'])
+            is_expired = ConversationManager.is_conversation_expired(created_at)
+    
+            if is_expired and conv_data.data[0]['status'] == ConversationStatus.EN_COURS.value:
+                # Mettre à jour le statut si la conversation est expirée
+                await self.handle_timeout(conversation_id)
+                return True
+    
+            return is_expired
+    
+        except Exception as e:
+            logging.error(f"Erreur lors de la vérification du timeout: {str(e)}")
+            return False
+    
+    async def handle_timeout(self, conversation_id: str):
+        """Gère une conversation qui a expiré"""
+        try:
+            await self.supabase.table('conversations')\
+                .update({
+                    'status': ConversationStatus.NON_TERMINEE.value,
+                    'updated_at': datetime.utcnow().isoformat(),
+                    'termination_reason': 'timeout',
+                    'completion_date': datetime.utcnow().isoformat()
+                })\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+    
+            # Analyser la conversation même si elle est incomplète
+            await self.analyze_conversation_for_advisor(conversation_id)
+    
+        except Exception as e:
+            logging.error(f"Erreur lors de la gestion du timeout: {str(e)}")
+    
+    async def handle_page_unload(self, conversation_id: str):
+        """Gère la fermeture de la page"""
+        try:
+            conv_data = await self.supabase.table('conversations')\
+                .select('status')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+    
+            if conv_data.data and conv_data.data[0]['status'] == ConversationStatus.EN_COURS.value:
+                await self.supabase.table('conversations')\
+                    .update({
+                        'status': ConversationStatus.NON_TERMINEE.value,
+                        'updated_at': datetime.utcnow().isoformat(),
+                        'termination_reason': 'page_unload',
+                        'completion_date': datetime.utcnow().isoformat()
+                    })\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
+    
+                # Analyser la conversation même si elle est incomplète
+                await self.analyze_conversation_for_advisor(conversation_id)
+    
+        except Exception as e:
+            logging.error(f"Erreur lors de la gestion de la fermeture de page: {str(e)}")
+    
     async def handle_conversation_end(self, conversation_id: str):
         """Gère la fin d'une conversation"""
         try:
             # Générer l'analyse pour le conseiller
-            await self.analyze_conversation_for_advisor(conversation_id)
+            advisor_notes = await self.analyze_conversation_for_advisor(conversation_id)
             
-            # Mettre à jour le statut
+            # Mettre à jour les informations finales de la conversation
             await self.supabase.table('conversations')\
                 .update({
-                    'status': 'terminée',
-                    'updated_at': datetime.utcnow().isoformat()
+                    'status': ConversationStatus.TERMINEE.value,
+                    'updated_at': datetime.utcnow().isoformat(),
+                    'advisor_notes': advisor_notes,
+                    'completion_date': datetime.utcnow().isoformat(),
                 })\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-
+    
         except Exception as e:
             logging.error(f"Erreur lors de la gestion de fin de conversation: {str(e)}")
 
