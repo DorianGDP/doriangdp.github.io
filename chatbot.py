@@ -1316,11 +1316,16 @@ class ChatBot:
             if not response.data:
                 return False
                 
-            start_time = datetime.fromisoformat(response.data[0].get('start_time'))
-            if not start_time:
+            # Convertir la date de début en datetime aware
+            start_time_str = response.data[0].get('start_time')
+            if not start_time_str:
                 return False
                 
-            return (datetime.utcnow() - start_time) > timedelta(hours=2)
+            # S'assurer que le format de date est uniforme
+            start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+            current_time = datetime.now(start_time.tzinfo)
+                
+            return (current_time - start_time) > timedelta(hours=2)
             
         except Exception as e:
             logging.error(f"Erreur lors de la vérification du timeout: {str(e)}")
@@ -1339,6 +1344,13 @@ class ChatBot:
         
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
+            # Sauvegarder d'abord le message de l'utilisateur
+            await self.save_conversation_message(
+                conversation_id,
+                question,
+                'user',
+                {}  # metadata vide pour les messages utilisateur
+            )
             # 1. Vérifier si la conversation existe ou la créer
             conv_data = self.supabase.table('conversations')\
                 .select('*')\
