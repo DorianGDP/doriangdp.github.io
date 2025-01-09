@@ -1344,13 +1344,6 @@ class ChatBot:
         
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
-            # Sauvegarder d'abord le message de l'utilisateur
-            await self.save_conversation_message(
-                conversation_id,
-                question,
-                'user',
-                {}  # metadata vide pour les messages utilisateur
-            )
             # 1. Vérifier si la conversation existe ou la créer
             conv_data = self.supabase.table('conversations')\
                 .select('*')\
@@ -1358,15 +1351,27 @@ class ChatBot:
                 .execute()
     
             if not conv_data.data:
-                # Créer une nouvelle conversation
+                # Créer une nouvelle conversation avec le message initial
                 self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
                     'status': 'en_cours',
                     'start_time': datetime.utcnow().isoformat(),
                     'created_at': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat(),
-                    'messages': []
+                    'messages': [], # Important : initialiser avec un tableau vide
+                    'initial_query': question  # Ajouter la question initiale
                 }).execute()
+    
+            # 2. Sauvegarder le message de l'utilisateur dans tous les cas
+            await self.save_conversation_message(
+                conversation_id,
+                question,
+                'user',
+                {}
+            )
+    
+            # Attendre un court instant pour s'assurer que le message est bien sauvegardé
+            await asyncio.sleep(0.1)
                 
                 # Récupérer la conversation nouvellement créée
                 conv_data = self.supabase.table('conversations')\
