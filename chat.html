@@ -122,7 +122,7 @@
     </footer>
 
     <script>
-        const API_URL = 'https://chatbot-gdp.onrender.com/api/';
+        const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';
         const messagesContainer = document.getElementById('chat-messages');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
@@ -328,18 +328,21 @@
             }
         }
 
+        // Configuration de l'API
+        const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';  // Ajout de /chat à l'URL
+        
         async function sendMessage(message = null) {
             const messageText = message || userInput.value.trim();
             if (!messageText) return;
-
+        
             userInput.value = '';
             disableInput();
-
+        
             try {
                 appendMessage('user', messageText);
                 const typingIndicator = createTypingIndicator();
                 messagesContainer.appendChild(typingIndicator);
-
+        
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
@@ -347,20 +350,23 @@
                         'Accept': 'application/json',
                         'Origin': 'https://doriangdp.github.io'
                     },
+                    credentials: 'include',  // Ajout de cette ligne
                     body: JSON.stringify({
                         question: messageText,
                         conversation_id: conversationId
                     })
                 });
                 
-                typingIndicator.remove();
+                if (typingIndicator) {
+                    typingIndicator.remove();
+                }
                 
                 if (!response.ok) {
                     throw new Error(`HTTP Error: ${response.status}`);
                 }
                 
                 const data = await response.json();
-
+        
                 if (data.status === ConversationStatus.TERMINEE) {
                     statusIndicator.textContent = 'Conversation terminée';
                     clearTimeout(timeoutTimer);
@@ -386,10 +392,12 @@
                         enableInput();
                     }
                 }
-
+        
             } catch (error) {
                 console.error('Error:', error);
-                typingIndicator?.remove();
+                if (typingIndicator && typingIndicator.parentNode) {
+                    typingIndicator.remove();
+                }
                 appendMessage('bot', 
                     "Désolé, je rencontre un problème technique. Veuillez réessayer dans quelques instants."
                 );
