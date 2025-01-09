@@ -24,73 +24,8 @@ class ConversationManager:
 
     @staticmethod
     def is_conversation_expired(start_time: datetime) -> bool:
-        """Vérifie si la conversation a dépassé la durée limite"""
         return datetime.utcnow() - start_time > ConversationManager.CONVERSATION_TIMEOUT
-
-    @staticmethod
-    async def handle_conversation_timeout(chatbot, conversation_id: str):
-        """Gère une conversation expirée"""
-        try:
-            await chatbot.supabase.table('conversations')\
-                .update({
-                    'status': ConversationStatus.NON_TERMINEE.value,
-                    'updated_at': datetime.utcnow().isoformat(),
-                    'timeout_reason': 'conversation_duration_exceeded'
-                })\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-            
-            return {
-                'type': 'text',
-                'content': "Je suis désolée, mais notre conversation a dépassé la durée limite. "
-                          "Souhaitez-vous recommencer ou être recontacté par un conseiller ?",
-                'options': ["Recommencer la conversation", "Être recontacté"]
-            }
-        except Exception as e:
-            logging.error(f"Erreur lors de la gestion du timeout: {str(e)}")
-            return None
-
-    @staticmethod
-    async def handle_page_close(chatbot, conversation_id: str):
-        """Gère la fermeture de la page"""
-        try:
-            # Vérifier si la conversation était en cours
-            conv_data = await chatbot.supabase.table('conversations')\
-                .select('status, created_at')\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-
-            if conv_data.data and conv_data.data[0]['status'] == ConversationStatus.EN_COURS.value:
-                await chatbot.supabase.table('conversations')\
-                    .update({
-                        'status': ConversationStatus.NON_TERMINEE.value,
-                        'updated_at': datetime.utcnow().isoformat(),
-                        'termination_reason': 'page_closed'
-                    })\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
-        except Exception as e:
-            logging.error(f"Erreur lors de la gestion de fermeture de page: {str(e)}")
-
-    @staticmethod
-    async def reset_conversation(chatbot, conversation_id: str):
-        """Réinitialise complètement une conversation"""
-        try:
-            new_conversation_id = chatbot.generate_unique_id()
-            
-            # Créer une nouvelle conversation
-            await chatbot.supabase.table('conversations').insert({
-                'conversation_id': new_conversation_id,
-                'status': ConversationStatus.EN_COURS.value,
-                'created_at': datetime.utcnow().isoformat(),
-                'updated_at': datetime.utcnow().isoformat()
-            }).execute()
-            
-            return new_conversation_id
-        except Exception as e:
-            logging.error(f"Erreur lors de la réinitialisation: {str(e)}")
-            return None
-            
+        
 class ConversationStorage:
     """Gère le stockage des conversations en mémoire"""
     def __init__(self):
@@ -493,7 +428,6 @@ class ChatBot:
         self.client = OpenAI(api_key=api_key)
         self.model = "gpt-4o"  
         self.conv_storage = ConversationStorage()
-        self.conversation_manager = ConversationManager()
         self.info_collector = InfoCollector()
         
         # Initialisation de Supabase
@@ -804,7 +738,7 @@ class ChatBot:
                 .execute()
 
             if not response.data:
-                # Créer une nouvelle conversation
+                # Ajouter start_time lors de la création
                 response = self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
                     'messages': [{
@@ -813,14 +747,11 @@ class ChatBot:
                         'timestamp': datetime.utcnow().isoformat(),
                         'metadata': extracted_info or {}
                     }],
-                    'status': 'en_cours',
-                    'score': 0,
-                    'needs_followup': False,
-                    'preconisations': [],
+                    'status': ConversationStatus.EN_COURS.value,
+                    'start_time': datetime.utcnow().isoformat(),
                     'created_at': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat()
                 }).execute()
-                return
 
             # Mettre à jour les messages existants
             existing_messages = response.data[0]['messages']
@@ -1154,16 +1085,24 @@ class ChatBot:
                 .execute()
     
             # Déclencher l'analyse pour le conseiller
-            await self.handle_conversation_end(conversation_id)
-            
+            await self.handle_conversation_end(conversation_id, ConversationStatus.TERMINEE)
             return gpt_response
     
         except Exception as e:
-            logging.error(f"Erreur dans generate_final_analysis: {str(e)}")
-            return "Je suis désolée, je ne peux pas générer l'analyse complète pour le moment. Un conseiller va vous recontacter rapidement."
+            logging.error(f"Erreur: {str(e)}")
+            return "Je suis désolée, une erreur est survenue."
 
     async def reset_conversation(self, conversation_id: str) -> None:
         try:
+            await self.supabase.table('conversations')\
+                .update({
+                    # Champs existants...
+                    'advisor_notes': None,
+                    'status': ConversationStatus.EN_COURS.value,
+                    'start_time': datetime.utcnow().isoformat()
+                })\
+                .eq('conversation_id', conversation_id)\
+                .execute()
             # Réinitialiser la mémoire
             self.conv_storage.reset_conversation(conversation_id)
             
@@ -1299,31 +1238,6 @@ class ChatBot:
             logging.error(f"Erreur lors de l'analyse pour le conseiller: {str(e)}")
             return []
     
-    async def check_conversation_timeout(self, conversation_id: str) -> bool:
-        """Vérifie si une conversation a dépassé la durée limite"""
-        try:
-            conv_data = await self.supabase.table('conversations')\
-                .select('created_at, status')\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-    
-            if not conv_data.data:
-                return True
-    
-            created_at = datetime.fromisoformat(conv_data.data[0]['created_at'])
-            is_expired = ConversationManager.is_conversation_expired(created_at)
-    
-            if is_expired and conv_data.data[0]['status'] == ConversationStatus.EN_COURS.value:
-                # Mettre à jour le statut si la conversation est expirée
-                await self.handle_timeout(conversation_id)
-                return True
-    
-            return is_expired
-    
-        except Exception as e:
-            logging.error(f"Erreur lors de la vérification du timeout: {str(e)}")
-            return False
-    
     async def handle_timeout(self, conversation_id: str):
         """Gère une conversation qui a expiré"""
         try:
@@ -1368,29 +1282,56 @@ class ChatBot:
         except Exception as e:
             logging.error(f"Erreur lors de la gestion de la fermeture de page: {str(e)}")
     
-    async def handle_conversation_end(self, conversation_id: str):
+    async def check_conversation_timeout(self, conversation_id: str) -> bool:
+        """Vérifie si la conversation a dépassé la limite de temps (2 heures)"""
+        try:
+            conv_data = await self.supabase.table('conversations')\
+                .select('start_time')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+            
+            if not conv_data.data:
+                return False
+                
+            start_time = datetime.fromisoformat(conv_data.data[0]['start_time'])
+            current_time = datetime.utcnow()
+            
+            return (current_time - start_time) > timedelta(hours=2)
+            
+        except Exception as e:
+            logging.error(f"Erreur lors de la vérification du timeout: {str(e)}")
+            return False
+
+    async def handle_conversation_end(self, conversation_id: str, status: ConversationStatus):
         """Gère la fin d'une conversation"""
         try:
             # Générer l'analyse pour le conseiller
-            advisor_notes = await self.analyze_conversation_for_advisor(conversation_id)
+            await self.analyze_conversation_for_advisor(conversation_id)
             
-            # Mettre à jour les informations finales de la conversation
+            # Mettre à jour le statut
             await self.supabase.table('conversations')\
                 .update({
-                    'status': ConversationStatus.TERMINEE.value,
-                    'updated_at': datetime.utcnow().isoformat(),
-                    'advisor_notes': advisor_notes,
-                    'completion_date': datetime.utcnow().isoformat(),
+                    'status': status.value,
+                    'updated_at': datetime.utcnow().isoformat()
                 })\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-    
+
         except Exception as e:
             logging.error(f"Erreur lors de la gestion de fin de conversation: {str(e)}")
 
         
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
+            # Vérifier timeout
+            if await self.check_conversation_timeout(conversation_id):
+                await self.handle_conversation_end(conversation_id, ConversationStatus.NON_TERMINEE)
+                return {
+                    'type': 'text',
+                    'content': "La conversation a expiré (2h). Souhaitez-vous recommencer ?",
+                    'options': ["Nouvelle conversation"],
+                    'status': ConversationStatus.NON_TERMINEE.value
+                }
             # 1. Vérifier l'état de la conversation
             conv_data = self.supabase.table('conversations')\
                 .select('created_at, status, messages')\
@@ -1406,25 +1347,6 @@ class ChatBot:
     
             conv = conv_data.data[0]
             created_at = datetime.fromisoformat(conv['created_at'])
-    
-            # 2. Vérifier l'expiration
-            if ConversationManager.is_conversation_expired(created_at):
-                # Mettre à jour en synchrone
-                self.supabase.table('conversations')\
-                    .update({
-                        'status': ConversationStatus.NON_TERMINEE.value,
-                        'updated_at': datetime.utcnow().isoformat(),
-                        'timeout_reason': 'conversation_duration_exceeded'
-                    })\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
-    
-                return {
-                    'type': 'text',
-                    'content': "Je suis désolée, mais notre conversation a dépassé la durée limite. "
-                              "Souhaitez-vous recommencer ou être recontacté par un conseiller ?",
-                    'options': ["Recommencer la conversation", "Être recontacté"]
-                }
     
             # 3. Vérifier le statut
             if conv['status'] == ConversationStatus.TERMINEE.value:
