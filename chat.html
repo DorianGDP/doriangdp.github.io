@@ -126,7 +126,7 @@
         const messagesContainer = document.getElementById('chat-messages');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
-        const resetButton = document.getElementById('reset-button');
+        const resetButton = document.getElementById('resetButton'); 
         const timerWarning = document.getElementById('timer-warning');
         const statusIndicator = document.getElementById('status-indicator');
 
@@ -158,31 +158,23 @@
         }
 
         async function handleConversationTimeout() {
-            timerWarning.classList.add('hidden');
-            disableInput();
-            
             try {
-                const response = await fetch(`${API_URL}/timeout`, {
+                await fetch(`${API_URL}/end_conversation`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        conversation_id: localStorage.getItem('chatConversationId'),
+                        conversation_id: conversationId,
                         status: ConversationStatus.NON_TERMINEE
                     })
                 });
-
-                if (response.ok) {
-                    appendMessage('bot', 
-                        "La durée limite de conversation (2 heures) a été atteinte. " +
-                        "Souhaitez-vous commencer une nouvelle conversation ou être recontacté par un conseiller ?",
-                        ["Nouvelle conversation", "Être recontacté"]
-                    );
-                }
+                disableInput();
+                timerWarning.classList.add('hidden');
+                appendMessage('bot', 
+                    "La durée limite de conversation (2 heures) a été atteinte. Souhaitez-vous recommencer ?",
+                    ["Nouvelle conversation"]
+                );
             } catch (error) {
                 console.error('Erreur timeout:', error);
-                appendMessage('bot', "La conversation a expiré. Veuillez commencer une nouvelle conversation.");
             }
         }
 
@@ -311,13 +303,18 @@
         }
 
         async function handlePageUnload() {
-            if (!navigator.sendBeacon) return;
-
-            const data = new FormData();
-            data.append('conversation_id', conversationId);
-            data.append('status', ConversationStatus.NON_TERMINEE);
-            
-            navigator.sendBeacon(`${API_URL}/page-close`, data);
+            try {
+                await fetch(`${API_URL}/end_conversation`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        conversation_id: conversationId,
+                        status: ConversationStatus.NON_TERMINEE
+                    })
+                });
+            } catch (error) {
+                console.error('Erreur fermeture page:', error);
+            }
         }
 
         async function sendMessage(message = null) {
@@ -423,32 +420,21 @@
             localStorage.removeItem('chatConversationId');
         });
 
-        // Vérifier périodiquement l'état de la conversation
         setInterval(async () => {
             try {
-                const response = await fetch(`${API_URL}/status`, {
+                const response = await fetch(`${API_URL}/check_timeout`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        conversation_id: conversationId
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ conversation_id: conversationId })
                 });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.status === ConversationStatus.TERMINEE) {
-                        statusIndicator.textContent = 'Conversation terminée';
-                        disableInput();
-                    } else if (data.status === ConversationStatus.NON_TERMINEE) {
-                        statusIndicator.textContent = 'Conversation interrompue';
-                    }
+                const data = await response.json();
+                if (data.timeout) {
+                    handleConversationTimeout();
                 }
             } catch (error) {
-                console.error('Erreur vérification statut:', error);
+                console.error('Erreur vérification timeout:', error);
             }
-        }, 30000); // Vérifier toutes les 30 secondes
+        }, 60000); // Vérification toutes les minutes
     </script>
 </body>
 </html>
