@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Send, X } from 'lucide-react';
+import { MessageSquare, Send } from 'lucide-react';
 
 const PatrimonialChatbot = () => {
   const [messages, setMessages] = useState([]);
@@ -7,6 +7,8 @@ const PatrimonialChatbot = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState('');
   const messagesEndRef = useRef(null);
+
+  const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -29,25 +31,39 @@ const PatrimonialChatbot = () => {
     setMessages(prev => [...prev, { type, content, options }]);
   };
 
-  const handleResponse = async (message) => {
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!userInput.trim() || isLoading) return;
+
+    const message = userInput.trim();
+    addMessage('user', message);
+    setUserInput('');
+    setIsLoading(true);
+
     try {
-      setIsLoading(true);
-      const response = await fetch('https://votre-api.com/chat', {
+      const response = await fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Origin': 'https://doriangdp.github.io'
+        },
+        credentials: 'include',
         body: JSON.stringify({
-          message,
-          conversationId
+          question: message,
+          conversation_id: conversationId
         })
       });
 
       const data = await response.json();
       
-      if (data.conversationId) {
-        setConversationId(data.conversationId);
+      if (data.conversation_id) {
+        setConversationId(data.conversation_id);
       }
 
-      addMessage('bot', data.content, data.options || []);
+      if (data.content) {
+        addMessage('bot', data.content, data.options || []);
+      }
     } catch (error) {
       console.error('Error:', error);
       addMessage('bot', "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?");
@@ -56,19 +72,40 @@ const PatrimonialChatbot = () => {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!userInput.trim() || isLoading) return;
+  const handleOptionClick = async (option) => {
+    addMessage('user', option);
+    setIsLoading(true);
 
-    const message = userInput.trim();
-    addMessage('user', message);
-    setUserInput('');
-    await handleResponse(message);
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Origin': 'https://doriangdp.github.io'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          question: option,
+          conversation_id: conversationId
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.content) {
+        addMessage('bot', data.content, data.options || []);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      addMessage('bot', "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
-      {/* Header */}
       <div className="bg-purple-900 text-white p-4 shadow-lg">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center">
@@ -81,7 +118,6 @@ const PatrimonialChatbot = () => {
         </div>
       </div>
 
-      {/* Messages Container */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, idx) => (
           <div key={idx} 
@@ -98,10 +134,7 @@ const PatrimonialChatbot = () => {
                   {msg.options.map((option, optIdx) => (
                     <button
                       key={optIdx}
-                      onClick={() => {
-                        addMessage('user', option);
-                        handleResponse(option);
-                      }}
+                      onClick={() => handleOptionClick(option)}
                       className="w-full p-2 text-left hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors text-gray-800"
                     >
                       {option}
@@ -115,7 +148,6 @@ const PatrimonialChatbot = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Form */}
       <form onSubmit={handleSubmit} className="p-4 bg-white border-t">
         <div className="flex gap-2">
           <input
