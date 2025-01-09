@@ -1,10 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from chatbot import ChatBot, ConversationStatus, ConversationManager
+from chatbot import ChatBot, ConversationStatus
 import os
 import traceback
 import asyncio
-from datetime import datetime
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -29,28 +28,16 @@ async def chat():
 
         question = data['question'].strip()
         conversation_id = data.get('conversation_id', '')
-
-        # Vérifier si la conversation existe et n'est pas expirée
-        conv_data = await chatbot.supabase.table('conversations')\
-            .select('created_at, status')\
-            .eq('conversation_id', conversation_id)\
-            .execute()
-
-        if conv_data.data:
-            created_at = datetime.fromisoformat(conv_data.data[0]['created_at'])
-            if ConversationManager.is_conversation_expired(created_at):
-                return jsonify(await ConversationManager.handle_conversation_timeout(chatbot, conversation_id))
-
-            status = conv_data.data[0]['status']
-            if status == ConversationStatus.TERMINEE.value:
-                return jsonify({
-                    'type': 'text',
-                    'content': "Cette conversation est terminée. Souhaitez-vous en commencer une nouvelle ?",
-                    'options': ["Commencer une nouvelle conversation"]
-                })
-
+        
+        # La seule chose qui doit être awaited est repondre_question
         response = await chatbot.repondre_question(question, conversation_id)
-        return jsonify(response)
+        
+        return jsonify({
+            'content': response.get('content', ''),
+            'type': response.get('type', 'text'),
+            'options': response.get('options', []),
+            'conversation_id': conversation_id
+        })
 
     except Exception as e:
         print(f"Server error: {str(e)}")
@@ -60,102 +47,60 @@ async def chat():
             'type': 'error'
         }), 500
 
-@app.route('/api/reset', methods=['POST'])
-async def reset_conversation():
+# Ajout de nouveaux endpoints pour la gestion des conversations
+@app.route('/api/chat/reset', methods=['POST'])
+async def reset_chat():
     try:
         data = request.json
-        old_conversation_id = data.get('conversation_id', '')
+        conversation_id = data.get('conversation_id')
+        if not conversation_id:
+            return jsonify({'error': 'Conversation ID manquant'}), 400
 
-        new_conversation_id = await ConversationManager.reset_conversation(chatbot, old_conversation_id)
+        # La réinitialisation est une opération synchrone avec Supabase
+        new_id = chatbot.conversation_manager.reset_conversation(chatbot, conversation_id)
         
-        if new_conversation_id:
-            return jsonify({
-                'status': 'success',
-                'new_conversation_id': new_conversation_id
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': "Impossible de réinitialiser la conversation"
-            }), 500
+        return jsonify({
+            'status': 'success',
+            'new_conversation_id': new_id
+        })
 
     except Exception as e:
         print(f"Reset error: {str(e)}")
-        traceback.print_exc()
-        return jsonify({
-            'status': 'error',
-            'message': "Une erreur technique est survenue"
-        }), 500
+        return jsonify({'error': 'Erreur lors de la réinitialisation'}), 500
 
-@app.route('/api/page-close', methods=['POST'])
-async def handle_page_close():
+@app.route('/api/chat/timeout', methods=['POST'])
+def handle_timeout():
     try:
         data = request.json
-        conversation_id = data.get('conversation_id', '')
+        conversation_id = data.get('conversation_id')
+        if not conversation_id:
+            return jsonify({'error': 'Conversation ID manquant'}), 400
 
-        await ConversationManager.handle_page_close(chatbot, conversation_id)
+        # L'opération de timeout est synchrone
+        chatbot.handle_timeout(conversation_id)
         
         return jsonify({'status': 'success'})
 
     except Exception as e:
-        print(f"Page close error: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': "Une erreur est survenue lors de la fermeture"
-        }), 500
+        print(f"Timeout error: {str(e)}")
+        return jsonify({'error': 'Erreur lors du timeout'}), 500
 
-@app.route('/api/timeout', methods=['POST'])
-async def handle_timeout():
+@app.route('/api/chat/close', methods=['POST'])
+def handle_page_close():
     try:
         data = request.json
-        conversation_id = data.get('conversation_id', '')
-
-        response = await ConversationManager.handle_conversation_timeout(chatbot, conversation_id)
-        return jsonify(response)
-
-    except Exception as e:
-        print(f"Timeout error: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': "Une erreur est survenue lors du timeout"
-        }), 500
-
-@app.route('/api/status', methods=['GET'])
-async def get_conversation_status():
-    try:
-        conversation_id = request.args.get('conversation_id', '')
+        conversation_id = data.get('conversation_id')
         if not conversation_id:
-            return jsonify({
-                'status': 'error',
-                'message': "ID de conversation manquant"
-            }), 400
+            return jsonify({'error': 'Conversation ID manquant'}), 400
 
-        conv_data = await chatbot.supabase.table('conversations')\
-            .select('status, created_at')\
-            .eq('conversation_id', conversation_id)\
-            .execute()
-
-        if not conv_data.data:
-            return jsonify({
-                'status': 'error',
-                'message': "Conversation non trouvée"
-            }), 404
-
-        conversation = conv_data.data[0]
-        created_at = datetime.fromisoformat(conversation['created_at'])
+        # L'opération de fermeture est synchrone
+        chatbot.handle_page_unload(conversation_id)
         
-        return jsonify({
-            'status': conversation['status'],
-            'created_at': created_at.isoformat(),
-            'is_expired': ConversationManager.is_conversation_expired(created_at)
-        })
+        return jsonify({'status': 'success'})
 
     except Exception as e:
-        print(f"Status check error: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': "Une erreur est survenue lors de la vérification du statut"
-        }), 500
+        print(f"Close error: {str(e)}")
+        return jsonify({'error': 'Erreur lors de la fermeture'}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
