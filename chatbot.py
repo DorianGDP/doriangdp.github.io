@@ -1307,9 +1307,7 @@ class ChatBot:
             await self.analyze_conversation_for_advisor(conversation_id)
             self.supabase.table('conversations').update({
                 'status': status.value,
-                'updated_at': datetime.utcnow().isoformat(),
-                'termination_reason': 'completed' if status == ConversationStatus.TERMINEE else 'interrupted'
-                # Retiré completion_date temporairement
+                'updated_at': datetime.utcnow().isoformat()
             }).eq('conversation_id', conversation_id).execute()
         except Exception as e:
             logging.error(f"Erreur lors de la gestion de fin de conversation: {str(e)}")
