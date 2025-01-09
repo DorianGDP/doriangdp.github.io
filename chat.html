@@ -201,14 +201,24 @@
             localStorage.setItem('chatConversationId', conversationId);
             
             try {
-                await fetch(`${API_URL}/end_conversation`, {
+                const response = await fetch('https://chatbot-gdp.onrender.com/api/chat/end_conversation', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Origin': 'https://doriangdp.github.io'
+                    },
+                    credentials: 'include',
                     body: JSON.stringify({
-                        old_conversation_id: oldConversationId,
-                        new_conversation_id: conversationId
+                        conversation_id: conversationId
                     })
                 });
+        
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+        
+                const data = await response.json();
             } catch (error) {
                 console.error('Erreur reset:', error);
             }
