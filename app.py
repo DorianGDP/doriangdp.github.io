@@ -79,7 +79,7 @@ async def check_timeout():
             'error': "Une erreur technique est survenue"
         }), 500
 
-@app.route('/api/chat/end_conversation', methods=['POST', 'OPTIONS'])
+@app.route('/api/end_conversation', methods=['POST', 'OPTIONS'])
 async def end_conversation():  # Ajout du mot-clé async ici
     if request.method == "OPTIONS":
         return build_preflight_response()
