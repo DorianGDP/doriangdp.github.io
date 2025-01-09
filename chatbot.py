@@ -1284,15 +1284,15 @@ class ChatBot:
     
     async def check_conversation_timeout(self, conversation_id: str) -> bool:
         try:
-            conv_data = await self.supabase.table('conversations')\
+            response = await self.supabase.table('conversations')\
                 .select('start_time')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
             
-            if not conv_data.data:
+            if not response.data:
                 return False
                 
-            start_time = datetime.fromisoformat(conv_data.data[0].get('start_time'))
+            start_time = datetime.fromisoformat(response.data[0].get('start_time'))
             if not start_time:
                 return False
                 
