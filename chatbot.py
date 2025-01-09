@@ -1283,7 +1283,6 @@ class ChatBot:
             logging.error(f"Erreur lors de la gestion de la fermeture de page: {str(e)}")
     
     async def check_conversation_timeout(self, conversation_id: str) -> bool:
-        """Vérifie si la conversation a dépassé la limite de temps (2 heures)"""
         try:
             conv_data = await self.supabase.table('conversations')\
                 .select('start_time')\
@@ -1293,30 +1292,25 @@ class ChatBot:
             if not conv_data.data:
                 return False
                 
-            start_time = datetime.fromisoformat(conv_data.data[0]['start_time'])
-            current_time = datetime.utcnow()
-            
-            return (current_time - start_time) > timedelta(hours=2)
+            start_time = datetime.fromisoformat(conv_data.data[0].get('start_time'))
+            if not start_time:
+                return False
+                
+            return (datetime.utcnow() - start_time) > timedelta(hours=2)
             
         except Exception as e:
             logging.error(f"Erreur lors de la vérification du timeout: {str(e)}")
             return False
 
     async def handle_conversation_end(self, conversation_id: str, status: ConversationStatus):
-        """Gère la fin d'une conversation"""
         try:
-            # Générer l'analyse pour le conseiller
             await self.analyze_conversation_for_advisor(conversation_id)
-            
-            # Mettre à jour le statut
-            await self.supabase.table('conversations')\
-                .update({
-                    'status': status.value,
-                    'updated_at': datetime.utcnow().isoformat()
-                })\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-
+            await self.supabase.table('conversations').update({
+                'status': status.value,
+                'updated_at': datetime.utcnow().isoformat(),
+                'termination_reason': 'completed' if status == ConversationStatus.TERMINEE else 'interrupted',
+                'completion_date': datetime.utcnow().isoformat()
+            }).eq('conversation_id', conversation_id).execute()
         except Exception as e:
             logging.error(f"Erreur lors de la gestion de fin de conversation: {str(e)}")
 
