@@ -31,46 +31,52 @@ const PatrimonialChatbot = () => {
     setMessages(prev => [...prev, { type, content, options }]);
   };
 
-  const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
     e.preventDefault();
     if (!userInput.trim() || isLoading) return;
 
     const message = userInput.trim();
-    addMessage('user', message);
-    setUserInput('');
     setIsLoading(true);
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Origin': 'https://doriangdp.github.io'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          question: message,
-          conversation_id: conversationId
-        })
-      });
+        // 1. Ajouter le message à l'interface avant l'envoi
+        addMessage('user', message);
+        
+        // 2. Envoyer la requête
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Origin': 'https://doriangdp.github.io'
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                question: message,
+                conversation_id: conversationId
+            })
+        });
 
-      const data = await response.json();
-      
-      if (data.conversation_id) {
-        setConversationId(data.conversation_id);
-      }
+        const data = await response.json();
+        
+        if (data.conversation_id) {
+            setConversationId(data.conversation_id);
+        }
 
-      if (data.content) {
-        addMessage('bot', data.content, data.options || []);
-      }
+        // 3. Seulement maintenant, réinitialiser l'input
+        setUserInput('');
+
+        // 4. Ajouter la réponse du bot si elle existe
+        if (data.content) {
+            addMessage('bot', data.content, data.options || []);
+        }
     } catch (error) {
-      console.error('Error:', error);
-      addMessage('bot', "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?");
+        console.error('Error:', error);
+        addMessage('bot', "Je suis désolée, je rencontre une difficulté technique. Pouvez-vous réessayer ?");
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  };
+};
 
   const handleOptionClick = async (option) => {
     addMessage('user', option);
