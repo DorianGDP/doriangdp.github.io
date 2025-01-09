@@ -64,7 +64,7 @@ async def chat():
             'type': 'error'
         }), 500
 
-@app.route('/api/reset', methods=['POST'])
+@app.route('/api/chat/reset', methods=['POST', 'OPTIONS'])
 async def reset_conversation():
     try:
         data = request.json
