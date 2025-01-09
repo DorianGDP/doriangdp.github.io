@@ -201,7 +201,7 @@
             localStorage.setItem('chatConversationId', conversationId);
             
             try {
-                const response = await fetch(`${API_URL}chat/end_conversation`, {
+                const response = await fetch(`${API_URL}/chat/end_conversation`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
