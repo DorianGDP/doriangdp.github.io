@@ -1075,7 +1075,7 @@ class ChatBot:
                 await self.save_recommendations(conversation_id, recommendations)
     
             # Mettre à jour le statut de la conversation
-            await self.supabase.table('conversations')\
+            self.supabase.table('conversations')\
                 .update({
                     'status': ConversationStatus.TERMINEE.value,
                     'updated_at': datetime.utcnow().isoformat(),
@@ -1094,7 +1094,7 @@ class ChatBot:
 
     async def reset_conversation(self, conversation_id: str) -> None:
         try:
-            await self.supabase.table('conversations')\
+            self.supabase.table('conversations')\
                 .update({
                     # Champs existants...
                     'advisor_notes': None,
@@ -1107,7 +1107,7 @@ class ChatBot:
             self.conv_storage.reset_conversation(conversation_id)
             
             # Réinitialiser dans la base de données
-            await self.supabase.table('conversations')\
+            self.supabase.table('conversations')\
                 .update({
                     'initial_query': None,
                     'messages': [],
@@ -1167,7 +1167,7 @@ class ChatBot:
         """Analyse la conversation complète pour extraire des informations pertinentes pour le conseiller"""
         try:
             # Récupérer la conversation
-            conv_data = await self.supabase.table('conversations')\
+            conv_data = self.supabase.table('conversations')\
                 .select('*')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
@@ -1224,7 +1224,7 @@ class ChatBot:
             ]
 
             # Sauvegarder l'analyse dans un nouveau champ 'advisor_notes'
-            await self.supabase.table('conversations')\
+            self.supabase.table('conversations')\
                 .update({
                     'advisor_notes': analysis,
                     'updated_at': datetime.utcnow().isoformat()
@@ -1241,7 +1241,7 @@ class ChatBot:
     async def handle_timeout(self, conversation_id: str):
         """Gère une conversation qui a expiré"""
         try:
-            await self.supabase.table('conversations')\
+            self.supabase.table('conversations')\
                 .update({
                     'status': ConversationStatus.NON_TERMINEE.value,
                     'updated_at': datetime.utcnow().isoformat(),
@@ -1260,13 +1260,13 @@ class ChatBot:
     async def handle_page_unload(self, conversation_id: str):
         """Gère la fermeture de la page"""
         try:
-            conv_data = await self.supabase.table('conversations')\
+            conv_data = self.supabase.table('conversations')\
                 .select('status')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
     
             if conv_data.data and conv_data.data[0]['status'] == ConversationStatus.EN_COURS.value:
-                await self.supabase.table('conversations')\
+                self.supabase.table('conversations')\
                     .update({
                         'status': ConversationStatus.NON_TERMINEE.value,
                         'updated_at': datetime.utcnow().isoformat(),
@@ -1284,7 +1284,7 @@ class ChatBot:
     
     async def check_conversation_timeout(self, conversation_id: str) -> bool:
         try:
-            response = await self.supabase.table('conversations')\
+            response = self.supabase.table('conversations')\
                 .select('start_time')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
@@ -1305,7 +1305,7 @@ class ChatBot:
     async def handle_conversation_end(self, conversation_id: str, status: ConversationStatus):
         try:
             await self.analyze_conversation_for_advisor(conversation_id)
-            await self.supabase.table('conversations').update({
+            self.supabase.table('conversations').update({
                 'status': status.value,
                 'updated_at': datetime.utcnow().isoformat(),
                 'termination_reason': 'completed' if status == ConversationStatus.TERMINEE else 'interrupted',
