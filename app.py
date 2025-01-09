@@ -11,7 +11,10 @@ CORS(app, resources={
     r"/api/*": {
         "origins": ["https://doriangdp.github.io"],
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "Accept", "Origin"]
+        "allow_headers": ["Content-Type", "Authorization", "Accept", "Origin"],
+        "expose_headers": ["Content-Type", "X-Requested-With", "Accept", "Origin"],
+        "supports_credentials": True,
+        "max_age": 3600
     }
 })
 
