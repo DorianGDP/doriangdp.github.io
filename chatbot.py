@@ -541,38 +541,8 @@ class ChatBot:
             return error_msg
     
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
-        """Traite la réponse de l'utilisateur avec gestion de la question finale"""
+        """Traite la réponse de l'utilisateur avec gestion améliorée des objectifs"""
         try:
-            # Vérifier si toutes les informations requises sont collectées
-            if self.info_collector.is_collection_complete(collected_info):
-                # Si c'est la question finale
-                if 'is_final_question' in collected_info:
-                    final_analysis = await self.generate_final_analysis(
-                        collected_info,
-                        user_message,  # La question finale
-                        conversation_id
-                    )
-                    return {
-                        'type': 'text',
-                        'content': final_analysis,
-                        'options': [],
-                        'valid': True,
-                        'should_proceed': False
-                    }
-                else:
-                    # Indiquer qu'il est temps de poser la question finale
-                    return {
-                        'type': 'text',
-                        'content': "Parfait ! J'ai toutes les informations nécessaires. "
-                                  "Pour vous fournir une analyse personnalisée, "
-                                  "pourriez-vous me préciser votre question ou votre objectif principal ?",
-                        'options': [],
-                        'show_final_question': True,
-                        'valid': True,
-                        'should_proceed': True
-                    }
-    
-            # Continuer avec la logique existante de collecte d'informations
             field_info = self.info_collector.get_field_info(current_field)
             if not field_info:
                 return {
@@ -600,20 +570,22 @@ class ChatBot:
                 updated_info = collected_info.copy()
                 updated_info[current_field] = validated_value
     
-                # Continuer avec la prochaine question
+                # Vérifier si c'était le dernier champ à collecter
+                if self.info_collector.is_collection_complete(updated_info):
+                    return {
+                        'type': 'text',
+                        'content': f"Parfait ! J'ai maintenant une bonne vue d'ensemble de votre situation. "
+                                  f"Pour vous fournir une analyse pertinente, quelle est votre principale "
+                                  f"question ou préoccupation concernant votre patrimoine ?",
+                        'options': [],
+                        'show_final_question': True,
+                        'valid': True,
+                        'should_proceed': True
+                    }
+    
+                # Si ce n'était pas le dernier champ, continuer avec la prochaine question
                 next_field = self.info_collector.get_current_field(updated_info)
                 if next_field:
-                    # Si c'était le dernier objectif sélectionné
-                    if current_field == 'objectifs' and self.info_collector.is_collection_complete(updated_info):
-                        return {
-                            'type': 'text',
-                            'content': f"Merci d'avoir partagé vos objectifs. Pour vous apporter les meilleures recommandations possibles, pourriez-vous me préciser votre principale préoccupation ou question concernant votre patrimoine ?",
-                            'options': [],
-                            'show_final_question': True,
-                            'valid': True,
-                            'should_proceed': True
-                        }
-                    
                     next_question = self.info_collector.get_field_question(next_field, updated_info)
                     response = await self.generate_gpt_response(
                         user_message,
@@ -1050,76 +1022,75 @@ class ChatBot:
             return False
 
     async def generate_final_analysis(self, collected_info: dict, final_question: str, conversation_id: str) -> str:
-        """Génère l'analyse finale et les recommandations avec la nouvelle structure"""
+        """Génère l'analyse finale avec une meilleure gestion de la transition"""
         try:
-            prompt = f"""En tant que conseillère en gestion de patrimoine, réalise une analyse personnalisée et structurée.
+            # Mettre à jour le statut de la conversation pour indiquer qu'on est en train de générer l'analyse
+            self.supabase.table('conversations')\
+                .update({
+                    'status': 'analyse_en_cours',
+                    'final_question': final_question,
+                    'updated_at': datetime.utcnow().isoformat()
+                })\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+    
+            prompt = f"""En tant que conseiller en gestion de patrimoine, réalise une analyse personnalisée et structurée.
             
             PROFIL CLIENT:
-            {json.dumps(collected_info, indent=2)}
+            - Prénom: {collected_info.get('first_name')}
+            - Age: {collected_info.get('age')}
+            - Profession: {collected_info.get('profession')}
+            - Revenus: {collected_info.get('income')}
+            - Patrimoine: {collected_info.get('patrimoine')}
+            - Situation familiale: {collected_info.get('situation_familiale')}
+            - Objectifs: {collected_info.get('objectifs')}
             
-            QUESTION FINALE DU CLIENT:
+            QUESTION DU CLIENT:
             {final_question}
             
-            FORMAT DE RÉPONSE REQUIS:
-            Divise ta réponse en 4 sections clairement séparées par des sauts de ligne doubles:
-    
-            SECTION 1 - SITUATION ACTUELLE:
-            - Résumé concis de leur situation personnelle et patrimoniale
-            - Points clés pertinents de leur profil
+            FORMAT REQUIS:
+            1. SITUATION ACTUELLE (2-3 phrases)
+            2. ANALYSE SPÉCIFIQUE liée à la question (3-4 phrases)
+            3. RECOMMANDATIONS CONCRÈTES (2-3 points clés)
+            4. CONCLUSION avec mention du suivi par un conseiller
             
-            SECTION 2 - ANALYSE ET RÉPONSE:
-            - Réponse directe et détaillée à leur question spécifique
-            - Explications des enjeux liés à leur situation
-            
-            SECTION 3 - RECOMMANDATIONS:
-            - 3 à 4 recommandations concrètes et personnalisées
-            - Chaque recommandation doit être actionnable et adaptée à leur profil
-            
-            SECTION 4 - CONCLUSION:
-            - Importance d'un accompagnement personnalisé
-            - Mention du suivi par un conseiller
-            - Rappel des prochaines étapes (ils seront recontactés)
-            
-            CONSIGNES DE STYLE:
+            CONSIGNES:
             - Style professionnel mais accessible
-            - Phrases concises et claires
-            - Personnalisation avec leurs informations
-            - Ton confiant et rassurant"""
+            - Réponses concises et concrètes
+            - Éviter le jargon technique
+            - Personnalisation avec son prénom et sa situation"""
     
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Tu es Patty, assistante patrimoniale expérimentée."},
+                    {"role": "system", "content": "Tu es Patty, conseillère en gestion de patrimoine expérimentée."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7
             )
     
-            gpt_response = response.choices[0].message.content
+            analysis = response.choices[0].message.content
     
             # Extraire et sauvegarder les recommandations
-            recommendations = await self.extract_recommendations(gpt_response)
+            recommendations = await self.extract_recommendations(analysis)
             if recommendations:
                 await self.save_recommendations(conversation_id, recommendations)
     
-            # Mettre à jour le statut de la conversation
+            # Mettre à jour le statut final de la conversation
             self.supabase.table('conversations')\
                 .update({
                     'status': ConversationStatus.TERMINEE.value,
-                    'final_question': final_question,
                     'updated_at': datetime.utcnow().isoformat(),
                     'termination_reason': 'analysis_completed'
                 })\
                 .eq('conversation_id', conversation_id)\
                 .execute()
     
-            # Déclencher l'analyse pour le conseiller
-            await self.handle_conversation_end(conversation_id, ConversationStatus.TERMINEE)
-            return gpt_response
+            return analysis
     
         except Exception as e:
             logging.error(f"Erreur lors de la génération de l'analyse finale: {str(e)}")
-            return "Je suis désolée, une erreur est survenue lors de la génération de l'analyse."
+            return "Je suis désolée, une erreur est survenue lors de l'analyse de votre situation. Un conseiller vous contactera rapidement."
 
     async def reset_conversation(self, conversation_id: str) -> None:
         try:
