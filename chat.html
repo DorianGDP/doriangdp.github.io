@@ -122,7 +122,13 @@
     </footer>
 
     <script>
-        const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';
+        const API_BASE_URL = 'https://chatbot-gdp.onrender.com/api';
+        const CHAT_ENDPOINT = `${API_BASE_URL}/chat`;
+        const CHECK_TIMEOUT_ENDPOINT = `${API_BASE_URL}/check_timeout`;
+        const END_CONVERSATION_ENDPOINT = `${API_BASE_URL}/chat/end_conversation`;
+        const RESET_CONVERSATION_ENDPOINT = `${API_BASE_URL}/reset_conversation`;
+        
+        // On conserve la référence aux éléments du DOM
         const messagesContainer = document.getElementById('chat-messages');
         const userInput = document.getElementById('user-input');
         const sendButton = document.getElementById('send-button');
@@ -201,7 +207,7 @@
             localStorage.setItem('chatConversationId', conversationId);
             
             try {
-                const response = await fetch(`${API_URL}/chat/end_conversation`, {
+                const response = await fetch(END_CONVERSATION_ENDPOINT, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -212,15 +218,12 @@
                         status: 'non_terminee'
                     })
                 });
-
         
                 if (!response.ok) {
                     console.warn('Erreur de réinitialisation:', response.status);
-                    // Continue même en cas d'erreur
                 }
             } catch (error) {
                 console.warn('Erreur de réinitialisation:', error);
-                // Continue même en cas d'erreur
             }
 
             messagesContainer.innerHTML = '';
@@ -343,14 +346,14 @@
                 const typingIndicator = createTypingIndicator();
                 messagesContainer.appendChild(typingIndicator);
         
-                const response = await fetch(API_URL, {
+                const response = await fetch(CHAT_ENDPOINT, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Accept': 'application/json',
                         'Origin': 'https://doriangdp.github.io'
                     },
-                    credentials: 'include',  // Ajout de cette ligne
+                    credentials: 'include',
                     body: JSON.stringify({
                         question: messageText,
                         conversation_id: conversationId
@@ -441,7 +444,7 @@
 
         setInterval(async () => {
             try {
-                const response = await fetch(`${API_URL}/check_timeout`, {
+                const response = await fetch(CHECK_TIMEOUT_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ conversation_id: conversationId })
@@ -453,7 +456,7 @@
             } catch (error) {
                 console.error('Erreur vérification timeout:', error);
             }
-        }, 60000); // Vérification toutes les minutes
+        }, 60000);
     </script>
 </body>
 </html>
