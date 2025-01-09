@@ -541,7 +541,38 @@ class ChatBot:
             return error_msg
     
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
+        """Traite la réponse de l'utilisateur avec gestion de la question finale"""
         try:
+            # Vérifier si toutes les informations requises sont collectées
+            if self.info_collector.is_collection_complete(collected_info):
+                # Si c'est la question finale
+                if 'is_final_question' in collected_info:
+                    final_analysis = await self.generate_final_analysis(
+                        collected_info,
+                        user_message,  # La question finale
+                        conversation_id
+                    )
+                    return {
+                        'type': 'text',
+                        'content': final_analysis,
+                        'options': [],
+                        'valid': True,
+                        'should_proceed': False
+                    }
+                else:
+                    # Indiquer qu'il est temps de poser la question finale
+                    return {
+                        'type': 'text',
+                        'content': "Parfait ! J'ai toutes les informations nécessaires. "
+                                  "Pour vous fournir une analyse personnalisée, "
+                                  "pourriez-vous me préciser votre question ou votre objectif principal ?",
+                        'options': [],
+                        'show_final_question': True,
+                        'valid': True,
+                        'should_proceed': True
+                    }
+    
+            # Continuer avec la logique existante de collecte d'informations
             field_info = self.info_collector.get_field_info(current_field)
             if not field_info:
                 return {
@@ -557,15 +588,6 @@ class ChatBot:
                 current_field, user_message, collected_info
             )
     
-            # Extraction et sauvegarde du message
-            extracted_info = await self.extract_info_from_message(user_message, current_field)
-            await self.save_conversation_message(
-                conversation_id, 
-                user_message, 
-                'user',
-                extracted_info
-            )
-    
             if is_valid:
                 # Mise à jour des informations
                 self.conv_storage.update_info(conversation_id, {current_field: validated_value})
@@ -578,24 +600,7 @@ class ChatBot:
                 updated_info = collected_info.copy()
                 updated_info[current_field] = validated_value
     
-                # Vérifier si toutes les informations sont collectées
-                if self.info_collector.is_collection_complete(updated_info):
-                    final_analysis = await self.generate_final_analysis(updated_info, conversation_id)
-                    await self.save_conversation_message(
-                        conversation_id,
-                        final_analysis,
-                        'bot',
-                        {'type': 'final_analysis'}
-                    )
-                    return {
-                        'type': 'text',
-                        'content': final_analysis,
-                        'options': [],
-                        'valid': True,
-                        'should_proceed': True
-                    }
-    
-                # Sinon, continuer avec la prochaine question
+                # Continuer avec la prochaine question
                 next_field = self.info_collector.get_current_field(updated_info)
                 if next_field:
                     next_question = self.info_collector.get_field_question(next_field, updated_info)
@@ -1028,35 +1033,42 @@ class ChatBot:
             logging.error(f"Erreur lors de la vérification du besoin de suivi: {str(e)}")
             return False
 
-    async def generate_final_analysis(self, collected_info: dict, conversation_id: str) -> str:
-        """Génère l'analyse finale et les recommandations"""
+    async def generate_final_analysis(self, collected_info: dict, final_question: str, conversation_id: str) -> str:
+        """Génère l'analyse finale et les recommandations avec la nouvelle structure"""
         try:
-            prompt = f"""En tant que conseillère en gestion de patrimoine, réalise une analyse personnalisée et naturelle.
+            prompt = f"""En tant que conseillère en gestion de patrimoine, réalise une analyse personnalisée et structurée.
             
-                        PROFIL CLIENT:
-                        {json.dumps(collected_info, indent=2)}
+            PROFIL CLIENT:
+            {json.dumps(collected_info, indent=2)}
             
-                        QUESTION INITIALE:
-                        {collected_info.get('initial_query')}
+            QUESTION FINALE DU CLIENT:
+            {final_question}
             
-                        CONSIGNES DE STYLE:
-                        - Adopte un ton chaleureux et professionnel
-                        - Évite les sections numérotées et les titres
-                        - Utilise des transitions naturelles entre les sujets
-                        - Garde un style conversationnel tout en restant professionnel
-                        - Intègre les recommandations de manière fluide dans le texte
-                        - Fais référence aux informations personnelles du client pour personnaliser le message
+            FORMAT DE RÉPONSE REQUIS:
+            Divise ta réponse en 4 sections clairement séparées par des sauts de ligne doubles:
+    
+            SECTION 1 - SITUATION ACTUELLE:
+            - Résumé concis de leur situation personnelle et patrimoniale
+            - Points clés pertinents de leur profil
             
-                        POINTS À COUVRIR:
-                        1. Un accueil personnalisé qui montre que tu as compris leur situation
-                        2. Une analyse concise de leur situation actuelle
-                        3. Une réponse ciblée à leur question initiale
-                        4. 2-3 recommandations pertinentes intégrées naturellement
-                        5. Une conclusion qui :
-                           - Souligne l'importance d'un accompagnement personnalisé
-                           - Justifie pourquoi un rendez-vous avec un conseiller serait bénéfique
-                           - Mentionne qu'ils seront recontactés via leurs coordonnées fournies
-                           - Se termine sur une note positive et engageante"""
+            SECTION 2 - ANALYSE ET RÉPONSE:
+            - Réponse directe et détaillée à leur question spécifique
+            - Explications des enjeux liés à leur situation
+            
+            SECTION 3 - RECOMMANDATIONS:
+            - 3 à 4 recommandations concrètes et personnalisées
+            - Chaque recommandation doit être actionnable et adaptée à leur profil
+            
+            SECTION 4 - CONCLUSION:
+            - Importance d'un accompagnement personnalisé
+            - Mention du suivi par un conseiller
+            - Rappel des prochaines étapes (ils seront recontactés)
+            
+            CONSIGNES DE STYLE:
+            - Style professionnel mais accessible
+            - Phrases concises et claires
+            - Personnalisation avec leurs informations
+            - Ton confiant et rassurant"""
     
             response = self.client.chat.completions.create(
                 model="gpt-4o",
@@ -1078,6 +1090,7 @@ class ChatBot:
             self.supabase.table('conversations')\
                 .update({
                     'status': ConversationStatus.TERMINEE.value,
+                    'final_question': final_question,
                     'updated_at': datetime.utcnow().isoformat(),
                     'termination_reason': 'analysis_completed'
                 })\
@@ -1089,8 +1102,8 @@ class ChatBot:
             return gpt_response
     
         except Exception as e:
-            logging.error(f"Erreur: {str(e)}")
-            return "Je suis désolée, une erreur est survenue."
+            logging.error(f"Erreur lors de la génération de l'analyse finale: {str(e)}")
+            return "Je suis désolée, une erreur est survenue lors de la génération de l'analyse."
 
     async def reset_conversation(self, conversation_id: str) -> None:
         try:
