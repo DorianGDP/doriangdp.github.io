@@ -1,4 +1,4 @@
-from chatbot import ChatBot
+from chatbot import ChatBot, ConversationStatus  # Importez ConversationStatus directement
 import traceback
 import asyncio
 from flask import Flask, request, jsonify, make_response
@@ -8,6 +8,8 @@ import os
 
 app = Flask(__name__)
 asgi_app = WsgiToAsgi(app)
+
+chatbot = ChatBot(os.getenv("OPENAI_API_KEY"))
 
 # Configuration CORS plus permissive
 CORS(app, resources={
@@ -32,8 +34,6 @@ def after_request(response):
         response.headers.add("Access-Control-Allow-Credentials", "true")
     return response
     
-chatbot = ChatBot(os.getenv("OPENAI_API_KEY"))
-
 @app.route('/api/chat', methods=['POST'])
 async def chat():
     try:
@@ -76,10 +76,10 @@ async def check_timeout():
         timeout = await chatbot.check_conversation_timeout(conversation_id)
         
         if timeout:
-            # Si timeout, terminer la conversation
+            # Si timeout, utiliser ConversationStatus directement
             await chatbot.handle_conversation_end(
                 conversation_id, 
-                chatbot.ConversationStatus.NON_TERMINEE
+                ConversationStatus.NON_TERMINEE
             )
 
         return jsonify({'timeout': timeout})
@@ -105,12 +105,12 @@ async def end_conversation():
         conversation_id = data['conversation_id']
         status = data.get('status', 'non_terminee')
         
-        # Convertir le status en enum
-        status_enum = chatbot.ConversationStatus.NON_TERMINEE
+        # Utiliser ConversationStatus directement, pas chatbot.ConversationStatus
+        status_enum = ConversationStatus.NON_TERMINEE
         if status == 'terminee':
-            status_enum = chatbot.ConversationStatus.TERMINEE
+            status_enum = ConversationStatus.TERMINEE
         elif status == 'en_cours':
-            status_enum = chatbot.ConversationStatus.EN_COURS
+            status_enum = ConversationStatus.EN_COURS
 
         await chatbot.handle_conversation_end(conversation_id, status_enum)
         response = make_response(jsonify({'success': True}))
@@ -121,6 +121,7 @@ async def end_conversation():
     except Exception as e:
         print(f"Server error: {str(e)}")
         return jsonify({'error': "Une erreur technique est survenue"}), 500
+
 
 def build_preflight_response():
     response = make_response()
