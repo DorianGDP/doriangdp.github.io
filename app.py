@@ -31,7 +31,7 @@ async def chat():
         conversation_id = data.get('conversation_id', '')
 
         # Vérifier si la conversation existe et n'est pas expirée
-        conv_data = await chatbot.supabase.table('conversations')\
+        conv_data = chatbot.supabase.table('conversations')\
             .select('created_at, status')\
             .eq('conversation_id', conversation_id)\
             .execute()
@@ -39,7 +39,8 @@ async def chat():
         if conv_data.data:
             created_at = datetime.fromisoformat(conv_data.data[0]['created_at'])
             if ConversationManager.is_conversation_expired(created_at):
-                return jsonify(await ConversationManager.handle_conversation_timeout(chatbot, conversation_id))
+                timeout_response = ConversationManager.handle_conversation_timeout(chatbot, conversation_id)
+                return jsonify(timeout_response)
 
             status = conv_data.data[0]['status']
             if status == ConversationStatus.TERMINEE.value:
@@ -66,7 +67,7 @@ async def reset_conversation():
         data = request.json
         old_conversation_id = data.get('conversation_id', '')
 
-        new_conversation_id = await ConversationManager.reset_conversation(chatbot, old_conversation_id)
+        new_conversation_id = ConversationManager.reset_conversation(chatbot, old_conversation_id)
         
         if new_conversation_id:
             return jsonify({
@@ -93,7 +94,7 @@ async def handle_page_close():
         data = request.json
         conversation_id = data.get('conversation_id', '')
 
-        await ConversationManager.handle_page_close(chatbot, conversation_id)
+        ConversationManager.handle_page_close(chatbot, conversation_id)
         
         return jsonify({'status': 'success'})
 
@@ -110,7 +111,7 @@ async def handle_timeout():
         data = request.json
         conversation_id = data.get('conversation_id', '')
 
-        response = await ConversationManager.handle_conversation_timeout(chatbot, conversation_id)
+        response = ConversationManager.handle_conversation_timeout(chatbot, conversation_id)
         return jsonify(response)
 
     except Exception as e:
@@ -130,7 +131,7 @@ async def get_conversation_status():
                 'message': "ID de conversation manquant"
             }), 400
 
-        conv_data = await chatbot.supabase.table('conversations')\
+        conv_data = chatbot.supabase.table('conversations')\
             .select('status, created_at')\
             .eq('conversation_id', conversation_id)\
             .execute()
