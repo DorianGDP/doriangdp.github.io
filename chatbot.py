@@ -541,6 +541,7 @@ class ChatBot:
             return error_msg
     
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
+            """Traite la réponse de l'utilisateur et gère la transition vers la question finale"""
         """Traite la réponse de l'utilisateur avec gestion de la question finale"""
         try:
             # Vérifier si toutes les informations requises sont collectées
@@ -603,6 +604,17 @@ class ChatBot:
                 # Continuer avec la prochaine question
                 next_field = self.info_collector.get_current_field(updated_info)
                 if next_field:
+                    # Si c'était le dernier objectif sélectionné
+                    if current_field == 'objectifs' and self.info_collector.is_collection_complete(updated_info):
+                        return {
+                            'type': 'text',
+                            'content': f"Merci d'avoir partagé vos objectifs. Pour vous apporter les meilleures recommandations possibles, pourriez-vous me préciser votre principale préoccupation ou question concernant votre patrimoine ?",
+                            'options': [],
+                            'show_final_question': True,
+                            'valid': True,
+                            'should_proceed': True
+                        }
+                    
                     next_question = self.info_collector.get_field_question(next_field, updated_info)
                     response = await self.generate_gpt_response(
                         user_message,
