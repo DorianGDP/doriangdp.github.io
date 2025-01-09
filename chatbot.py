@@ -572,6 +572,15 @@ class ChatBot:
     
                 # Vérifier si c'était le dernier champ à collecter
                 if self.info_collector.is_collection_complete(updated_info):
+                    # Mettre à jour le statut pour indiquer qu'on attend la question finale
+                    self.supabase.table('conversations')\
+                        .update({
+                            'status': 'analyse_en_cours',
+                            'updated_at': datetime.utcnow().isoformat()
+                        })\
+                        .eq('conversation_id', conversation_id)\
+                        .execute()
+                    
                     return {
                         'type': 'text',
                         'content': f"Parfait ! J'ai maintenant une bonne vue d'ensemble de votre situation. "
@@ -1430,7 +1439,19 @@ class ChatBot:
                         'options': []
                     }
     
-            # 7. Pour les interactions suivantes
+            # 7. Vérifier si toutes les informations ont été collectées
+            if self.info_collector.is_collection_complete(collected_info):
+                # Si le statut est 'analyse_en_cours', c'est la question finale
+                if conv and conv.get('status') == 'analyse_en_cours':
+                    analysis = await self.generate_final_analysis(collected_info, question, conversation_id)
+                    return {
+                        'type': 'text',
+                        'content': analysis,
+                        'options': [],
+                        'status': ConversationStatus.TERMINEE.value
+                    }
+    
+            # 8. Pour les interactions suivantes
             current_field = self.info_collector.get_current_field(collected_info)
             return await self.process_response(question, conversation_id, collected_info, current_field)
     
