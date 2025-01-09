@@ -1392,10 +1392,10 @@ class ChatBot:
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
             # 1. Vérifier l'état de la conversation
-            conv_data = await self.supabase.table('conversations')\
+            conv_data = self.supabase.table('conversations')\
                 .select('created_at, status, messages')\
                 .eq('conversation_id', conversation_id)\
-                .execute()
+                .execute()  # Plus de await ici
     
             if not conv_data.data:
                 return {
@@ -1409,7 +1409,22 @@ class ChatBot:
     
             # 2. Vérifier l'expiration
             if ConversationManager.is_conversation_expired(created_at):
-                return await ConversationManager.handle_conversation_timeout(self, conversation_id)
+                # Mettre à jour en synchrone
+                self.supabase.table('conversations')\
+                    .update({
+                        'status': ConversationStatus.NON_TERMINEE.value,
+                        'updated_at': datetime.utcnow().isoformat(),
+                        'timeout_reason': 'conversation_duration_exceeded'
+                    })\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
+    
+                return {
+                    'type': 'text',
+                    'content': "Je suis désolée, mais notre conversation a dépassé la durée limite. "
+                              "Souhaitez-vous recommencer ou être recontacté par un conseiller ?",
+                    'options': ["Recommencer la conversation", "Être recontacté"]
+                }
     
             # 3. Vérifier le statut
             if conv['status'] == ConversationStatus.TERMINEE.value:
@@ -1425,7 +1440,7 @@ class ChatBot:
                     'options': ["Reprendre la conversation", "Nouvelle conversation"]
                 }
     
-            # 4. Récupérer les informations de la conversation une seule fois
+            # 4. Récupérer les informations de la conversation
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
     
@@ -1436,23 +1451,23 @@ class ChatBot:
                 
                 # Mise à jour dans Supabase
                 try:
-                    await self.supabase.table('conversations')\
+                    self.supabase.table('conversations')\
                         .update({
                             'initial_query': question,
                             'updated_at': datetime.utcnow().isoformat()
                         })\
                         .eq('conversation_id', conversation_id)\
-                        .execute()
+                        .execute()  # Plus de await
                     
                 except Exception as e:
                     logging.warning(f"Impossible de sauvegarder initial_query: {str(e)}")
                 
                 try:
                     response = self.client.chat.completions.create(
-                        model="gpt-4",  # Correction du modèle
+                        model="gpt-4",
                         messages=[
                             {
-                                "role": "system",
+                                "role": "system", 
                                 "content": """Tu es Patty, assistante en gestion de patrimoine.
                                 - Accueillir le client chaleureusement
                                 - Faire un bref commentaire sur sa demande initiale
