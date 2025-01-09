@@ -10,7 +10,10 @@ CORS(app, resources={
     r"/api/*": {
         "origins": ["https://doriangdp.github.io"],
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "Accept", "Origin"]
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Range", "X-Content-Range"],
+        "supports_credentials": True,
+        "max_age": 120  # Cache preflight requests for 2 minutes
     }
 })
 
@@ -74,8 +77,11 @@ async def check_timeout():
             'error': "Une erreur technique est survenue"
         }), 500
 
-@app.route('/api/end_conversation', methods=['POST'])
-async def end_conversation():
+@app.route('/api/chat/end_conversation', methods=['POST', 'OPTIONS'])
+def end_conversation():
+    if request.method == "OPTIONS":
+        return build_preflight_response()
+    
     try:
         data = request.json
         if not data or 'conversation_id' not in data:
@@ -94,14 +100,26 @@ async def end_conversation():
             status_enum = chatbot.ConversationStatus.EN_COURS
 
         await chatbot.handle_conversation_end(conversation_id, status_enum)
-        return jsonify({'success': True})
-
+        return build_actual_response(jsonify({'success': True}))
+        
     except Exception as e:
         print(f"Server error: {str(e)}")
-        traceback.print_exc()
-        return jsonify({
+        return build_actual_response(jsonify({
             'error': "Une erreur technique est survenue"
-        }), 500
+        })), 500
+
+def build_preflight_response():
+    response = make_response()
+    response.headers.add("Access-Control-Allow-Origin", "https://doriangdp.github.io")
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+    response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    response.headers.add("Access-Control-Allow-Credentials", "true")
+    return response
+
+def build_actual_response(response):
+    response.headers.add("Access-Control-Allow-Origin", "https://doriangdp.github.io")
+    response.headers.add("Access-Control-Allow-Credentials", "true")
+    return response
 
 @app.route('/api/reset_conversation', methods=['POST'])
 async def reset_conversation():
