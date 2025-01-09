@@ -1363,11 +1363,11 @@ class ChatBot:
                     'start_time': datetime.utcnow().isoformat(),
                     'created_at': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat(),
-                    'messages': [], # Important : initialiser avec un tableau vide
-                    'initial_query': question  # Ajouter la question initiale
+                    'messages': [],
+                    'initial_query': question
                 }).execute()
     
-            # 2. Sauvegarder le message de l'utilisateur dans tous les cas
+            # 2. Sauvegarder le message de l'utilisateur
             await self.save_conversation_message(
                 conversation_id,
                 question,
@@ -1375,18 +1375,18 @@ class ChatBot:
                 {}
             )
     
-            # Attendre un court instant pour s'assurer que le message est bien sauvegardé
+            # Attendre un court instant pour la sauvegarde
             await asyncio.sleep(0.1)
-                
-                # Récupérer la conversation nouvellement créée
-                conv_data = self.supabase.table('conversations')\
-                    .select('*')\
-                    .eq('conversation_id', conversation_id)\
-                    .execute()
     
-            conv = conv_data.data[0]
+            # Récupérer la conversation mise à jour
+            conv_data = self.supabase.table('conversations')\
+                .select('*')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+    
+            conv = conv_data.data[0] if conv_data.data else None
             
-            # 2. Vérifier timeout
+            # 3. Vérifier timeout
             if await self.check_conversation_timeout(conversation_id):
                 await self.handle_conversation_end(conversation_id, ConversationStatus.NON_TERMINEE)
                 return {
@@ -1396,28 +1396,27 @@ class ChatBot:
                     'status': ConversationStatus.NON_TERMINEE.value
                 }
     
-            # 3. Vérifier le statut
-            if conv['status'] == ConversationStatus.TERMINEE.value:
+            # 4. Vérifier le statut
+            if conv and conv.get('status') == ConversationStatus.TERMINEE.value:
                 return {
                     'type': 'text',
                     'content': "Cette conversation est terminée. Souhaitez-vous en commencer une nouvelle ?",
                     'options': ["Commencer une nouvelle conversation"]
                 }
-            elif conv['status'] == ConversationStatus.NON_TERMINEE.value:
+            elif conv and conv.get('status') == ConversationStatus.NON_TERMINEE.value:
                 return {
                     'type': 'text',
                     'content': "Votre dernière conversation n'a pas abouti. Voulez-vous la reprendre ou en commencer une nouvelle ?",
                     'options': ["Reprendre la conversation", "Nouvelle conversation"]
                 }
     
-            # 4. Récupérer les informations de la conversation
+            # 5. Récupérer les informations de la conversation
             conversation = self.conv_storage.get_conversation(conversation_id)
             collected_info = conversation['info_collected']
     
-            # 5. Première interaction
+            # 6. Première interaction
             if not collected_info.get('initial_query'):
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
-                
                 try:
                     self.supabase.table('conversations')\
                         .update({
@@ -1426,7 +1425,6 @@ class ChatBot:
                         })\
                         .eq('conversation_id', conversation_id)\
                         .execute()
-                        
                 except Exception as e:
                     logging.warning(f"Impossible de sauvegarder initial_query: {str(e)}")
                 
@@ -1435,7 +1433,7 @@ class ChatBot:
                         model="gpt-4o",
                         messages=[
                             {
-                                "role": "system", 
+                                "role": "system",
                                 "content": """Tu es Patty, assistante en gestion de patrimoine.
                                 - Accueillir le client chaleureusement
                                 - Faire un bref commentaire sur sa demande initiale
@@ -1453,7 +1451,6 @@ class ChatBot:
                         'content': response.choices[0].message.content,
                         'options': []
                     }
-                    
                 except Exception as e:
                     logging.error(f"Erreur lors de la génération de la réponse: {str(e)}")
                     return {
@@ -1462,7 +1459,7 @@ class ChatBot:
                         'options': []
                     }
     
-            # 6. Pour les interactions suivantes
+            # 7. Pour les interactions suivantes
             current_field = self.info_collector.get_current_field(collected_info)
             return await self.process_response(question, conversation_id, collected_info, current_field)
     
