@@ -34,8 +34,11 @@ def after_request(response):
         response.headers.add("Access-Control-Allow-Credentials", "true")
     return response
     
-@app.route('/api/chat', methods=['POST'])
+@app.route('/api/chat', methods=['POST', 'OPTIONS'])
 async def chat():
+    if request.method == "OPTIONS":
+        return build_preflight_response()
+
     try:
         data = request.json
         if not data or 'question' not in data:
@@ -48,19 +51,19 @@ async def chat():
         conversation_id = data.get('conversation_id', '')
         response = await chatbot.repondre_question(question, conversation_id)
         
-        return jsonify({
+        return build_actual_response(jsonify({
             'content': response.get('content', ''),
             'type': response.get('type', 'text'),
             'options': response.get('options', []),
             'conversation_id': conversation_id
-        })
+        }))
     except Exception as e:
         print(f"Server error: {str(e)}")
         traceback.print_exc()
-        return jsonify({
+        return build_actual_response(jsonify({
             'content': "Une erreur technique est survenue",
             'type': 'error'
-        }), 500
+        })), 500
 
 @app.route('/api/check_timeout', methods=['POST'])
 async def check_timeout():
