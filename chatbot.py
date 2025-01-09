@@ -541,7 +541,6 @@ class ChatBot:
             return error_msg
     
     async def process_response(self, user_message: str, conversation_id: str, collected_info: dict, current_field: str) -> dict:
-            """Traite la réponse de l'utilisateur et gère la transition vers la question finale"""
         """Traite la réponse de l'utilisateur avec gestion de la question finale"""
         try:
             # Vérifier si toutes les informations requises sont collectées
