@@ -752,10 +752,10 @@ class ChatBot:
                 .select('messages, id')\
                 .eq('conversation_id', conversation_id)\
                 .execute()
-
+    
             if not response.data:
-                # Ajouter start_time lors de la création
-                response = self.supabase.table('conversations').insert({
+                # Si pas de conversation, en créer une nouvelle avec le message
+                self.supabase.table('conversations').insert({
                     'conversation_id': conversation_id,
                     'messages': [{
                         'type': message_type,
@@ -763,32 +763,37 @@ class ChatBot:
                         'timestamp': datetime.utcnow().isoformat(),
                         'metadata': extracted_info or {}
                     }],
-                    'status': ConversationStatus.EN_COURS.value,
+                    'status': 'en_cours',
                     'start_time': datetime.utcnow().isoformat(),
                     'created_at': datetime.utcnow().isoformat(),
                     'updated_at': datetime.utcnow().isoformat()
                 }).execute()
-
-            # Mettre à jour les messages existants
-            existing_messages = response.data[0]['messages']
+                return
+    
+            # Si la conversation existe, mettre à jour les messages
+            existing_messages = response.data[0].get('messages', []) or []
             new_message = {
                 'type': message_type,
                 'content': content,
                 'timestamp': datetime.utcnow().isoformat(),
                 'metadata': extracted_info or {}
             }
+    
+            # S'assurer que existing_messages est une liste
+            if not isinstance(existing_messages, list):
+                existing_messages = []
+    
             updated_messages = existing_messages + [new_message]
-
+    
             # Mettre à jour la conversation
-            response = self.supabase.table('conversations')\
+            self.supabase.table('conversations')\
                 .update({'messages': updated_messages})\
-                .eq('id', response.data[0]['id'])\
+                .eq('conversation_id', conversation_id)\
                 .execute()
-
+    
         except Exception as e:
             logging.error(f"Erreur lors de la sauvegarde du message: {str(e)}")
             raise
-
 
     def get_conversation_stage(self, conversation: dict) -> str:
         """
