@@ -1,13 +1,15 @@
-from flask import Flask, request, jsonify
-from asgiref.wsgi import WsgiToAsgi
-from flask_cors import CORS
 from chatbot import ChatBot
-import os
 import traceback
 import asyncio
+from flask import Flask, request, jsonify, make_response
+from asgiref.wsgi import WsgiToAsgi
+from flask_cors import CORS
+import os
 
 app = Flask(__name__)
 asgi_app = WsgiToAsgi(app)
+
+# Configuration CORS plus permissive
 CORS(app, resources={
     r"/api/*": {
         "origins": ["https://doriangdp.github.io"],
@@ -15,10 +17,21 @@ CORS(app, resources={
         "allow_headers": ["Content-Type", "Authorization"],
         "expose_headers": ["Content-Range", "X-Content-Range"],
         "supports_credentials": True,
-        "max_age": 120  # Cache preflight requests for 2 minutes
+        "max_age": 120
     }
 })
 
+# Ajout d'un gestionnaire pour les requêtes OPTIONS
+@app.after_request
+def after_request(response):
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", "https://doriangdp.github.io")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+    return response
+    
 chatbot = ChatBot(os.getenv("OPENAI_API_KEY"))
 
 @app.route('/api/chat', methods=['POST'])
@@ -79,17 +92,15 @@ async def check_timeout():
             'error': "Une erreur technique est survenue"
         }), 500
 
-@app.route('/api/end_conversation', methods=['POST', 'OPTIONS'])
-async def end_conversation():  # Ajout du mot-clé async ici
+@app.route('/api/chat/end_conversation', methods=['POST', 'OPTIONS'])
+async def end_conversation():
     if request.method == "OPTIONS":
         return build_preflight_response()
-    
+        
     try:
         data = request.json
         if not data or 'conversation_id' not in data:
-            return jsonify({
-                'error': 'Conversation ID manquant'
-            }), 400
+            return jsonify({'error': 'Conversation ID manquant'}), 400
 
         conversation_id = data['conversation_id']
         status = data.get('status', 'non_terminee')
@@ -102,13 +113,14 @@ async def end_conversation():  # Ajout du mot-clé async ici
             status_enum = chatbot.ConversationStatus.EN_COURS
 
         await chatbot.handle_conversation_end(conversation_id, status_enum)
-        return build_actual_response(jsonify({'success': True}))
+        response = make_response(jsonify({'success': True}))
+        response.headers.add('Access-Control-Allow-Origin', 'https://doriangdp.github.io')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
         
     except Exception as e:
         print(f"Server error: {str(e)}")
-        return build_actual_response(jsonify({
-            'error': "Une erreur technique est survenue"
-        })), 500
+        return jsonify({'error': "Une erreur technique est survenue"}), 500
 
 def build_preflight_response():
     response = make_response()
