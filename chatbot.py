@@ -1315,7 +1315,32 @@ class ChatBot:
         
     async def repondre_question(self, question: str, conversation_id: str) -> dict:
         try:
-            # Vérifier timeout
+            # 1. Vérifier si la conversation existe ou la créer
+            conv_data = self.supabase.table('conversations')\
+                .select('*')\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+    
+            if not conv_data.data:
+                # Créer une nouvelle conversation
+                self.supabase.table('conversations').insert({
+                    'conversation_id': conversation_id,
+                    'status': 'en_cours',
+                    'start_time': datetime.utcnow().isoformat(),
+                    'created_at': datetime.utcnow().isoformat(),
+                    'updated_at': datetime.utcnow().isoformat(),
+                    'messages': []
+                }).execute()
+                
+                # Récupérer la conversation nouvellement créée
+                conv_data = self.supabase.table('conversations')\
+                    .select('*')\
+                    .eq('conversation_id', conversation_id)\
+                    .execute()
+    
+            conv = conv_data.data[0]
+            
+            # 2. Vérifier timeout
             if await self.check_conversation_timeout(conversation_id):
                 await self.handle_conversation_end(conversation_id, ConversationStatus.NON_TERMINEE)
                 return {
@@ -1324,21 +1349,6 @@ class ChatBot:
                     'options': ["Nouvelle conversation"],
                     'status': ConversationStatus.NON_TERMINEE.value
                 }
-            # 1. Vérifier l'état de la conversation
-            conv_data = self.supabase.table('conversations')\
-                .select('created_at, status, messages')\
-                .eq('conversation_id', conversation_id)\
-                .execute()  # Plus de await ici
-    
-            if not conv_data.data:
-                return {
-                    'type': 'text',
-                    'content': "Désolé, je ne trouve pas votre conversation. Voulez-vous en commencer une nouvelle ?",
-                    'options': ["Commencer une nouvelle conversation"]
-                }
-    
-            conv = conv_data.data[0]
-            created_at = datetime.fromisoformat(conv['created_at'])
     
             # 3. Vérifier le statut
             if conv['status'] == ConversationStatus.TERMINEE.value:
@@ -1360,10 +1370,8 @@ class ChatBot:
     
             # 5. Première interaction
             if not collected_info.get('initial_query'):
-                # Mise à jour en mémoire
                 self.conv_storage.update_info(conversation_id, {'initial_query': question})
                 
-                # Mise à jour dans Supabase
                 try:
                     self.supabase.table('conversations')\
                         .update({
@@ -1371,14 +1379,14 @@ class ChatBot:
                             'updated_at': datetime.utcnow().isoformat()
                         })\
                         .eq('conversation_id', conversation_id)\
-                        .execute()  # Plus de await
-                    
+                        .execute()
+                        
                 except Exception as e:
                     logging.warning(f"Impossible de sauvegarder initial_query: {str(e)}")
                 
                 try:
                     response = self.client.chat.completions.create(
-                        model="gpt-4",
+                        model="gpt-4o",
                         messages=[
                             {
                                 "role": "system", 
