@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from asgiref.wsgi import WsgiToAsgi
 from flask_cors import CORS
 from chatbot import ChatBot
 import os
@@ -6,6 +7,7 @@ import traceback
 import asyncio
 
 app = Flask(__name__)
+asgi_app = WsgiToAsgi(app)
 CORS(app, resources={
     r"/api/*": {
         "origins": ["https://doriangdp.github.io"],
@@ -78,7 +80,7 @@ async def check_timeout():
         }), 500
 
 @app.route('/api/chat/end_conversation', methods=['POST', 'OPTIONS'])
-def end_conversation():
+async def end_conversation():  # Ajout du mot-clé async ici
     if request.method == "OPTIONS":
         return build_preflight_response()
     
