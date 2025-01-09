@@ -165,14 +165,15 @@
 
         async function handleConversationTimeout() {
             try {
-                await fetch(`${API_URL}/end_conversation`, {
+                await fetch(END_CONVERSATION_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',  // Ajouter cette ligne
                     body: JSON.stringify({
                         conversation_id: conversationId,
                         status: ConversationStatus.NON_TERMINEE
                     })
-                });
+        });
                 disableInput();
                 timerWarning.classList.add('hidden');
                 appendMessage('bot', 
@@ -318,7 +319,7 @@
 
         async function handlePageUnload() {
             try {
-                await fetch(`${API_URL}/end_conversation`, {
+                await fetch(END_CONVERSATION_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -331,9 +332,6 @@
             }
         }
 
-        // Configuration de l'API
-        const API_URL = 'https://chatbot-gdp.onrender.com/api/chat';  // Ajout de /chat à l'URL
-        
         async function sendMessage(message = null) {
             const messageText = message || userInput.value.trim();
             if (!messageText) return;
@@ -447,6 +445,7 @@
                 const response = await fetch(CHECK_TIMEOUT_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',  // Ajouter cette ligne
                     body: JSON.stringify({ conversation_id: conversationId })
                 });
                 const data = await response.json();
