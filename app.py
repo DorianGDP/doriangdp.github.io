@@ -28,7 +28,6 @@ async def chat():
 
         question = data['question'].strip()
         conversation_id = data.get('conversation_id', '')
-
         response = await chatbot.repondre_question(question, conversation_id)
         
         return jsonify({
@@ -37,6 +36,13 @@ async def chat():
             'options': response.get('options', []),
             'conversation_id': conversation_id
         })
+    except Exception as e:
+        print(f"Server error: {str(e)}")
+        traceback.print_exc()
+        return jsonify({
+            'content': "Une erreur technique est survenue",
+            'type': 'error'
+        }), 500
 
 @app.route('/api/check_timeout', methods=['POST'])
 async def check_timeout():
