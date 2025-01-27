@@ -1292,30 +1292,109 @@ class ChatBot:
             logging.error(f"Erreur lors de la gestion de la fermeture de page: {str(e)}")
     
     async def check_conversation_timeout(self, conversation_id: str) -> bool:
+        """Vérifie si une conversation a dépassé le délai d'expiration"""
         try:
-            response = self.supabase.table('conversations')\
-                .select('start_time')\
-                .eq('conversation_id', conversation_id)\
-                .execute()
-            
-            if not response.data:
+            # Vérifier d'abord si la connexion à Supabase est active
+            if not self.supabase:
+                logging.warning("La connexion Supabase n'est pas initialisée")
                 return False
+    
+            # Ajouter un timeout à la requête
+            response = await asyncio.wait_for(
+                self.supabase.table('conversations')
+                .select('start_time, status')
+                .eq('conversation_id', conversation_id)
+                .execute(),
+                timeout=5.0  # 5 secondes de timeout
+            )
                 
-            # Convertir la date de début en datetime aware
+            if not response.data:
+                logging.info(f"Aucune conversation trouvée pour l'ID {conversation_id}")
+                return False
+                    
+            # Gestion explicite des dates
             start_time_str = response.data[0].get('start_time')
             if not start_time_str:
+                logging.warning(f"Pas de start_time pour la conversation {conversation_id}")
+                return False
+                    
+            try:
+                # Normalisation du format de date
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                current_time = datetime.now(start_time.tzinfo)
+                
+                # Vérification du timeout
+                is_timeout = (current_time - start_time) > timedelta(hours=2)
+                
+                if is_timeout:
+                    logging.info(f"Timeout détecté pour la conversation {conversation_id}")
+                    # Mettre à jour le statut de la conversation
+                    await self.handle_conversation_timeout(conversation_id)
+                    
+                return is_timeout
+                
+            except ValueError as e:
+                logging.error(f"Erreur de format de date: {e}")
                 return False
                 
-            # S'assurer que le format de date est uniforme
-            start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-            current_time = datetime.now(start_time.tzinfo)
-                
-            return (current_time - start_time) > timedelta(hours=2)
-            
+        except asyncio.TimeoutError:
+            logging.error("Timeout lors de la requête à Supabase")
+            return False
         except Exception as e:
             logging.error(f"Erreur lors de la vérification du timeout: {str(e)}")
             return False
 
+
+    async def handle_conversation_timeout(self, conversation_id: str):
+        """Gère le timeout d'une conversation"""
+        try:
+            # Mettre à jour le statut dans Supabase
+            await self.supabase.table('conversations')\
+                .update({
+                    'status': 'timeout',
+                    'updated_at': datetime.utcnow().isoformat(),
+                    'termination_reason': 'timeout'
+                })\
+                .eq('conversation_id', conversation_id)\
+                .execute()
+            
+            # Enregistrer l'événement
+            await self.log_conversation_event(conversation_id, 'timeout')
+            
+        except Exception as e:
+            logging.error(f"Erreur lors de la gestion du timeout: {str(e)}")
+
+
+    async def log_conversation_event(self, conversation_id: str, event_type: str):
+        """Enregistre un événement de conversation"""
+        try:
+            await self.supabase.table('conversation_events')\
+                .insert({
+                    'conversation_id': conversation_id,
+                    'event_type': event_type,
+                    'timestamp': datetime.utcnow().isoformat()
+                })\
+                .execute()
+        except Exception as e:
+            logging.error(f"Erreur lors de l'enregistrement de l'événement: {str(e)}")
+    
+    async def initialize_supabase_connection(self):
+        """Initialise ou réinitialise la connexion Supabase"""
+        try:
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_KEY")
+            
+            if not supabase_url or not supabase_key:
+                raise ValueError("Les variables d'environnement Supabase ne sont pas configurées")
+                
+            self.supabase = create_client(supabase_url, supabase_key)
+            logging.info("Connexion Supabase initialisée avec succès")
+            
+        except Exception as e:
+            logging.error(f"Erreur lors de l'initialisation de Supabase: {str(e)}")
+            self.supabase = None
+
+    
     async def handle_conversation_end(self, conversation_id: str, status: ConversationStatus):
         try:
             await self.analyze_conversation_for_advisor(conversation_id)
